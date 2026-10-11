@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+<title>⚔️ مغامرة المملكة الضائعة — RPG ثلاثية الأبعاد</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0b1020;font-family:'Segoe UI',Tahoma,Arial,sans-serif;touch-action:none;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+  #game{position:fixed;inset:0}
+  canvas#scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* HUD */
+  #hud{position:absolute;inset:0;pointer-events:none;z-index:10;display:none}
+  #hud.on{display:block}
+  .topbar{position:absolute;top:calc(8px + env(safe-area-inset-top));right:10px;left:10px;display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+  .panel{background:rgba(10,16,35,.72);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:8px 10px;backdrop-filter:blur(8px);color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #stats{min-width:200px;max-width:46vw}
+  .bar{height:10px;border-radius:99px;background:rgba(255,255,255,.15);overflow:hidden;margin-top:4px;position:relative}
+  .bar>i{display:block;height:100%;border-radius:99px;transition:width .25s}
+  #hpbar>i{background:linear-gradient(90deg,#ff4d6d,#ff8a5c)}
+  #mpbar>i{background:linear-gradient(90deg,#38bdf8,#a78bfa)}
+  #xpbar>i{background:linear-gradient(90deg,#facc15,#f97316)}
+  .row{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700}
+  .row small{font-weight:400;opacity:.8}
+  #lvl{font-size:22px;background:linear-gradient(180deg,#fde68a,#f59e0b);color:#4a2c00;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;border:2px solid #fff3}
+  #quest{max-width:44vw;font-size:12.5px;line-height:1.6}
+  #quest b{color:#fde047}
+  #coins{font-size:15px}
+  #minimap{width:110px;height:110px;border-radius:50%;border:3px solid rgba(255,255,255,.35);background:rgba(5,10,25,.8);overflow:hidden}
+  /* damage numbers */
+  .dmg{position:absolute;color:#fff;font-weight:900;font-size:18px;text-shadow:0 2px 6px #000,0 0 12px rgba(255,80,80,.8);pointer-events:none;transform:translate(-50%,-50%);animation:floatUp .8s ease-out forwards;z-index:20}
+  .dmg.crit{color:#fde047;font-size:24px}
+  .dmg.heal{color:#4ade80}
+  .dmg.coin{color:#facc15;font-size:15px}
+  @keyframes floatUp{0%{opacity:1;margin-top:0;scale:1}100%{opacity:0;margin-top:-70px;scale:1.2}}
+  /* controls */
+  #joystick{position:absolute;bottom:calc(22px + env(safe-area-inset-bottom));right:18px;width:132px;height:132px;border-radius:50%;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.12),rgba(255,255,255,.04));border:2px solid rgba(255,255,255,.25);pointer-events:auto;touch-action:none;z-index:15}
+  #stick{position:absolute;left:50%;top:50%;width:58px;height:58px;border-radius:50%;background:linear-gradient(180deg,#fff,#cbd5e1);border:3px solid #0ea5e9;transform:translate(-50%,-50%);box-shadow:0 6px 16px rgba(0,0,0,.5)}
+  #btns{position:absolute;bottom:calc(22px + env(safe-area-inset-bottom));left:14px;display:flex;gap:10px;align-items:flex-end;pointer-events:auto;z-index:15}
+  .btn{width:66px;height:66px;border-radius:50%;border:2px solid rgba(255,255,255,.4);color:#fff;font-size:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;background:rgba(15,23,42,.65);backdrop-filter:blur(6px);box-shadow:0 6px 18px rgba(0,0,0,.45);touch-action:none;cursor:pointer}
+  .btn small{font-size:10px;font-weight:700;opacity:.9}
+  .btn:active{transform:scale(.92)}
+  #btn-atk{width:82px;height:82px;font-size:34px;background:radial-gradient(circle at 30% 30%,#fb7185,#be123c);border-color:#fecdd3}
+  #btn-dash{background:radial-gradient(circle at 30% 30%,#38bdf8,#1d4ed8)}
+  #btn-jump{background:radial-gradient(circle at 30% 30%,#4ade80,#15803d)}
+  #btn-potion{background:radial-gradient(circle at 30% 30%,#facc15,#b45309);position:relative}
+  #btn-potion b{position:absolute;top:-6px;left:-6px;background:#fff;color:#92400e;font-size:13px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+  .cd{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-size:18px}
+  /* menus */
+  .screen{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:18px;background:radial-gradient(ellipse at 50% 30%,#1e2a5a 0%,#0b1020 65%);overflow:auto}
+  .card{width:min(560px,94vw);max-height:92vh;overflow:auto;background:linear-gradient(180deg,rgba(30,41,90,.95),rgba(12,18,38,.97));border:1px solid #ffffff2a;border-radius:22px;padding:22px;color:#fff;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .card h1{font-size:clamp(22px,5vw,34px);margin:6px 0;background:linear-gradient(90deg,#fde047,#fb923c,#f472b6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .card p{font-size:14px;line-height:1.9;opacity:.9}
+  .hero3d{font-size:54px;filter:drop-shadow(0 8px 16px rgba(0,0,0,.6));animation:bounce 1.6s ease-in-out infinite}
+  @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+  .bigbtn{pointer-events:auto;display:block;width:100%;margin-top:12px;padding:14px;border:none;border-radius:14px;font-size:18px;font-weight:900;color:#3b2500;background:linear-gradient(180deg,#fde047,#f59e0b);box-shadow:0 8px 0 #92400e;cursor:pointer}
+  .bigbtn:active{transform:translateY(4px);box-shadow:0 4px 0 #92400e}
+  .ghostbtn{display:block;width:100%;margin-top:10px;padding:11px;border-radius:12px;background:#ffffff14;color:#fff;border:1px solid #ffffff30;font-weight:700;cursor:pointer}
+  .features{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;text-align:right}
+  .features div{background:#ffffff0d;border:1px solid #ffffff14;border-radius:12px;padding:9px;font-size:12.5px;line-height:1.6}
+  #loading{position:absolute;inset:0;z-index:60;background:#0b1020;color:#fff;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center}
+  .spin{width:54px;height:54px;border-radius:50%;border:5px solid #ffffff22;border-top-color:#facc15;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #toast{position:absolute;top:76px;right:50%;transform:translateX(50%);z-index:40;background:linear-gradient(90deg,#7c3aed,#db2777);color:#fff;padding:10px 18px;border-radius:99px;font-weight:800;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;animation:pop .35s}
+  @keyframes pop{from{scale:.7;opacity:0}}
+  #combo{position:absolute;top:170px;left:14px;z-index:11;color:#fde047;font-weight:900;font-size:22px;text-shadow:0 2px 8px #000;display:none}
+  #bosshp{position:absolute;top:calc(76px + env(safe-area-inset-top));right:50%;transform:translateX(50%);width:min(480px,86vw);display:none;z-index:11}
+  #bosshp .bar{height:14px;border:2px solid #ffffff66}
+  #bosshp p{text-align:center;color:#fff;font-weight:800;font-size:13px;margin-bottom:4px;text-shadow:0 2px 4px #000}
+  #pauseBtn{position:absolute;top:calc(8px + env(safe-area-inset-top));right:50%;transform:translateX(50%);z-index:16;pointer-events:auto;width:44px;height:34px;border-radius:10px;border:1px solid #ffffff33;background:rgba(10,16,35,.7);color:#fff;font-size:16px}
+  @media (min-width:800px){#minimap{width:140px;height:140px}#quest{font-size:13.5px}}
+  @media (orientation:landscape) and (max-height:500px){#joystick{width:110px;height:110px;bottom:12px}#btns{bottom:12px}.btn{width:56px;height:56px}#btn-atk{width:68px;height:68px}#stats{scale:.9;transform-origin:top right}}
+  @media (max-width:600px){
+    .topbar{flex-wrap:wrap;gap:6px}
+    #stats{min-width:0;flex:1;font-size:12px}
+    #minimap{width:74px;height:74px}
+    #quest{order:3;width:100%;max-width:100%;font-size:12px;padding:6px 10px}
+    #pauseBtn{top:auto;bottom:calc(168px + env(safe-area-inset-bottom));right:50%}
+    #bosshp{top:150px}
+    #toast{top:150px;font-size:12px;max-width:90vw;text-align:center}
+  }
+</style>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+<div id="game"><canvas id="scene"></canvas></div>
+
+<div id="loading"><div class="spin"></div><div>⏳ جاري تجهيز المملكة...</div></div>
+
+<div id="hud">
+  <div class="topbar">
+    <div class="panel" id="stats">
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="lvl">1</div>
+        <div style="flex:1">
+          <div class="row">❤️ <div class="bar" id="hpbar" style="flex:1"><i style="width:100%"></i></div> <small id="hptxt">100</small></div>
+          <div class="row">✨ <div class="bar" id="xpbar" style="flex:1"><i style="width:0%"></i></div></div>
+          <div class="row" style="font-size:12px">⚔️ <span id="atk">12</span> &nbsp; 🪙 <span id="coins">0</span> &nbsp; 🧪 <span id="pots">3</span> &nbsp; 👹 <span id="kills">0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="quest">📜 <b>المهمة 1/3:</b> <span id="questxt">اجمع 8 جواهر ذهبية</span></div>
+    <div class="panel" style="padding:4px"><canvas id="minimap" width="220" height="220"></canvas></div>
+  </div>
+  <button id="pauseBtn">⏸</button>
+  <div id="bosshp"><p>👑 ملك السلايم الغاضب 👑</p><div class="bar" id="hpbar" style="background:rgba(0,0,0,.6)"><i id="bossfill" style="width:100%;background:linear-gradient(90deg,#ef4444,#991b1b)"></i></div></div>
+  <div id="combo">🔥 كومبو x2</div>
+  <div id="joystick"><div id="stick"></div></div>
+  <div id="btns">
+    <div class="btn" id="btn-potion">🧪<small>جرعة</small><b id="potn">3</b></div>
+    <div class="btn" id="btn-jump">⤴️<small>قفز</small></div>
+    <div class="btn" id="btn-dash">💨<small>اندفاع</small></div>
+    <div class="btn" id="btn-atk">⚔️<small>هجوم</small></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<div class="screen" id="menu">
+  <div class="card">
+    <div class="hero3d">🏰⚔️🐉</div>
+    <h1>مغامرة المملكة الضائعة</h1>
+    <p>لعبة RPG ثلاثية الأبعاد للجوال والتابلت 📱<br>استكشف المملكة، اهزم وحوش السلايم، اجمع الجواهر، وطوّر بطلك حتى تواجه <b>ملك السلايم</b> 👑</p>
+    <div class="features">
+      <div>🕹️ عصا تحكم لمس + أزرار هجوم واندفاع وقفز</div>
+      <div>⚔️ نظام قتال بكومبو وضربات حرجة</div>
+      <div>📜 3 مهام + زعيم أخير ومكافآت</div>
+      <div>💾 حفظ تلقائي + خريطة مصغرة + أصوات</div>
+    </div>
+    <button class="bigbtn" id="startBtn">▶️ ابدأ المغامرة</button>
+    <button class="ghostbtn" id="contBtn" style="display:none">📂 أكمل من الحفظ (مستوى <span id="svl"></span>)</button>
+    <p style="font-size:12px;margin-top:10px;opacity:.7">💻 على الكمبيوتر: WASD للحركة + مسافة للهجوم + Shift للاندفاع<br>📱 اسحب يمين الشاشة لتدوير الكاميرا</p>
+  </div>
+</div>
+
+<div class="screen" id="over" style="display:none">
+  <div class="card">
+    <div class="hero3d">💀</div>
+    <h1>انتهت المغامرة!</h1>
+    <p id="overStats"></p>
+    <button class="bigbtn" id="retryBtn">🔄 حاول مجدداً</button>
+  </div>
+</div>
+
+<div class="screen" id="win" style="display:none">
+  <div class="card">
+    <div class="hero3d">🏆👑🎉</div>
+    <h1>أسطورة المملكة!</h1>
+    <p id="winStats"></p>
+    <button class="bigbtn" id="againBtn">⚔️ العب من جديد</button>
+  </div>
+</div>
+
+<div class="screen" id="paused" style="display:none">
+  <div class="card">
+    <div class="hero3d">⏸️</div>
+    <h1>إيقاف مؤقت</h1>
+    <button class="bigbtn" id="resumeBtn">▶️ استئناف</button>
+    <button class="ghostbtn" id="restartBtn">🔄 إعادة من البداية</button>
+    <button class="ghostbtn" id="soundBtn">🔊 الصوت: يعمل</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============ الصوت (إجرائي بدون ملفات) ============ */
+let AC=null, soundOn=true;
+function ac(){ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended')AC.resume(); return AC; }
+function beep(f=440,d=.12,type='square',v=.15,slide=0){ if(!soundOn)return; try{const c=ac(),o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.value=f;if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(40,f+slide),c.currentTime+d);g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d);o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+d);}catch(e){} }
+const SFX={ swing(){beep(300,.12,'sawtooth',.08,-200)}, hit(){beep(160,.15,'square',.18,-80)}, crit(){beep(90,.3,'sawtooth',.22,200)}, coin(){beep(900,.12,'sine',.15,600)}, gem(){beep(1200,.2,'sine',.15,800)}, lvl(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,.2,'triangle',.18),i*110))}, potion(){beep(400,.4,'sine',.18,400)}, dash(){beep(200,.2,'sine',.12,500)}, jump(){beep(350,.15,'square',.1,250)}, hurt(){beep(120,.25,'sawtooth',.2,-60)}, roar(){beep(70,.8,'sawtooth',.25,60)}, win(){[523,659,784,1046,1318].forEach((f,i)=>setTimeout(()=>beep(f,.3,'triangle',.2),i*150))} };
+
+/* ============ الحالة ============ */
+const save = JSON.parse(localStorage.getItem('rpg3d_save')||'null');
+const P={lvl:1,hp:100,maxHp:100,atk:12,xp:0,xpNeed:60,coins:0,gems:0,kills:0,potions:3,combo:0,comboT:0,dashCD:0,atkCD:0,inv:0};
+let quest=0; // 0 gems,1 kills,2 boss
+const QUESTS=[{t:'اجمع 8 جواهر ذهبية',need:8},{t:'اهزم 6 وحوش سلايم',need:6},{t:'اهزم 👑 ملك السلايم في الشمال!',need:1}];
+let running=false, paused=false, over=false;
+
+/* ============ المشهد ============ */
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87b5e8);
+scene.fog=new THREE.Fog(0x87b5e8,35,110);
+const camera=new THREE.PerspectiveCamera(58,innerWidth/innerHeight,.1,300);
+function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize); resize();
+
+scene.add(new THREE.HemisphereLight(0xbdd8ff,0x3f6b3a,.95));
+const sun=new THREE.DirectionalLight(0xfff2cc,1.6);
+sun.position.set(30,45,18); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-60;sun.shadow.camera.right=60;sun.shadow.camera.top=60;sun.shadow.camera.bottom=-60;sun.shadow.camera.far=140;
+scene.add(sun);
+
+/* أرضية */
+const WORLD=120, HALF=55;
+const gtex=(()=>{const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');x.fillStyle='#5da24a';x.fillRect(0,0,128,128);for(let i=0;i<300;i++){x.fillStyle=`rgba(${40+Math.random()*40|0},${130+Math.random()*60|0},${50+Math.random()*30|0},.6)`;x.fillRect(Math.random()*128,Math.random()*128,3,3);}const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(24,24);return t;})();
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(WORLD,WORLD),new THREE.MeshStandardMaterial({map:gtex,roughness:1}));
+ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+// حدود حجرية
+(()=>{const m=new THREE.MeshStandardMaterial({color:0x8b8fa3,roughness:.9});const g=new THREE.BoxGeometry(4,2,4);for(let i=-HALF;i<=HALF;i+=4){for(const [x,z] of [[i,-HALF-2],[i,HALF+2],[-HALF-2,i],[HALF+2,i]]){const b=new THREE.Mesh(g,m);b.position.set(x,1,z);b.castShadow=true;scene.add(b);}}})();
+
+function tree(x,z,s=1){const g=new THREE.Group();const t=new THREE.Mesh(new THREE.CylinderGeometry(.35*s,.5*s,2.4*s,7),new THREE.MeshStandardMaterial({color:0x6b4a2f,roughness:1}));t.position.y=1.2*s;t.castShadow=true;g.add(t);const cols=[0x2d7a35,0x37a047,0x1f6b2e];for(let i=0;i<3;i++){const c=new THREE.Mesh(new THREE.ConeGeometry((1.7-i*.35)*s,1.6*s,8),new THREE.MeshStandardMaterial({color:cols[i],roughness:1}));c.position.y=(2.6+i*1.1)*s;c.castShadow=true;g.add(c);}g.position.set(x,0,z);scene.add(g);return g;}
+function rock(x,z,s=1){const r=new THREE.Mesh(new THREE.DodecahedronGeometry(s,0),new THREE.MeshStandardMaterial({color:0x9aa0b4,roughness:1,flatShading:true}));r.position.set(x,s*.5,z);r.rotation.set(Math.random()*3,Math.random()*3,0);r.castShadow=true;scene.add(r);}
+function house(x,z,rot=0,c=0xe8b04b){const g=new THREE.Group();const base=new THREE.Mesh(new THREE.BoxGeometry(6,3.4,5),new THREE.MeshStandardMaterial({color:0xf3e3c2,roughness:.9}));base.position.y=1.7;base.castShadow=true;g.add(base);const roof=new THREE.Mesh(new THREE.ConeGeometry(4.8,2.6,4),new THREE.MeshStandardMaterial({color:c,roughness:.8,flatShading:true}));roof.position.y=4.7;roof.rotation.y=Math.PI/4;roof.castShadow=true;g.add(roof);const door=new THREE.Mesh(new THREE.BoxGeometry(1.2,2,0.2),new THREE.MeshStandardMaterial({color:0x5b3a1e}));door.position.set(0,1,.1+2.5);g.add(door);const win=new THREE.Mesh(new THREE.BoxGeometry(1,1,.15),new THREE.MeshStandardMaterial({color:0xfde68a,emissive:0xf59e0b,emissiveIntensity:.6}));win.position.set(1.8,2,2.55);g.add(win);g.position.set(x,0,z);g.rotation.y=rot;scene.add(g);}
+function torch(x,z){const g=new THREE.Group();const p=new THREE.Mesh(new THREE.CylinderGeometry(.12,.15,2.4,6),new THREE.MeshStandardMaterial({color:0x4a3421}));p.position.y=1.2;p.castShadow=true;g.add(p);const f=new THREE.Mesh(new THREE.SphereGeometry(.32,10,10),new THREE.MeshStandardMaterial({color:0xffb300,emissive:0xff7700,emissiveIntensity:2}));f.position.y=2.6;g.add(f);const l=new THREE.PointLight(0xff9a2e,8,12);l.position.y=2.6;g.add(l);g.position.set(x,0,z);scene.add(g);return f;}
+function flower(x,z){const c=[0xf472b6,0xfacc15,0xffffff,0xc084fc][Math.random()*4|0];const m=new THREE.Mesh(new THREE.SphereGeometry(.16,6,6),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:.4}));m.position.set(x,.35,z);scene.add(m);const s=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.5,5),new THREE.MeshStandardMaterial({color:0x2d7a35}));s.position.set(x,.15,z);scene.add(s);}
+
+// توزيع العالم
+for(let i=0;i<46;i++){const a=Math.random()*Math.PI*2,r=14+Math.random()*38;tree(Math.cos(a)*r,Math.sin(a)*r,.7+Math.random()*.9);}
+for(let i=0;i<22;i++){const a=Math.random()*Math.PI*2,r=12+Math.random()*40;rock(Math.cos(a)*r,Math.sin(a)*r,.4+Math.random()*.9);}
+for(let i=0;i<40;i++){const a=Math.random()*Math.PI*2,r=8+Math.random()*44;flower(Math.cos(a)*r,Math.sin(a)*r);}
+house(-14,-10,.4); house(12,-16,-.3,0x7fb4e8); house(-4,20,Math.PI,0xe8798b);
+const flames=[];for(const [x,z] of [[0,-6],[8,6],[-8,6],[30,36]]){flames.push(torch(x,z));}
+// عرش الزعيم شمالاً
+(()=>{const g=new THREE.Group();const m=new THREE.MeshStandardMaterial({color:0x4c1d95,roughness:.7});for(let i=0;i<5;i++){const s=new THREE.Mesh(new THREE.BoxGeometry(1.4,3+i*1.2,1),m);s.position.set((i-2)*1.5,1.5+i*.6,-2);s.castShadow=true;g.add(s);}const lava=new THREE.Mesh(new THREE.CircleGeometry(9,24),new THREE.MeshStandardMaterial({color:0x7c2d12,emissive:0xef4444,emissiveIntensity:.35}));lava.rotation.x=-Math.PI/2;lava.position.y=.02;g.add(lava);g.position.set(0,0,-42);scene.add(g);})();
+
+/* ============ البطل ============ */
+const hero=new THREE.Group(); scene.add(hero);
+const matBody=new THREE.MeshStandardMaterial({color:0x3b82f6,roughness:.6});
+const matArmor=new THREE.MeshStandardMaterial({color:0xcbd5e1,roughness:.3,metalness:.7});
+const body=new THREE.Mesh(new THREE.CapsuleGeometry(.55,.7,6,12),matBody); body.position.y=1.15; body.castShadow=true; hero.add(body);
+const head=new THREE.Mesh(new THREE.SphereGeometry(.42,16,16),new THREE.MeshStandardMaterial({color:0xffd9b3,roughness:.7})); head.position.y=2.25; head.castShadow=true; hero.add(head);
+const helm=new THREE.Mesh(new THREE.ConeGeometry(.5,.7,10),matArmor); helm.position.y=2.65; helm.castShadow=true; hero.add(helm);
+const plume=new THREE.Mesh(new THREE.BoxGeometry(.08,.5,.3),new THREE.MeshStandardMaterial({color:0xef4444})); plume.position.set(0,2.95,0); hero.add(plume);
+for(const s of [-1,1]){const eye=new THREE.Mesh(new THREE.SphereGeometry(.07,8,8),new THREE.MeshStandardMaterial({color:0x111}));eye.position.set(s*.15,2.28,.36);hero.add(eye);}
+const armR=new THREE.Group(); armR.position.set(-.7,1.7,0); hero.add(armR);
+const armMesh=new THREE.Mesh(new THREE.CapsuleGeometry(.16,.5,4,8),matBody); armMesh.position.y=-.35; armMesh.castShadow=true; armR.add(armMesh);
+const sword=new THREE.Group(); armR.add(sword); sword.position.set(0,-.6,.1);
+const blade=new THREE.Mesh(new THREE.BoxGeometry(.14,1.5,.3),new THREE.MeshStandardMaterial({color:0xe2e8f0,metalness:.9,roughness:.2,emissive:0x38bdf8,emissiveIntensity:.25})); blade.position.y=-.9; blade.castShadow=true; sword.add(blade);
+const guard=new THREE.Mesh(new THREE.BoxGeometry(.4,.12,.5),new THREE.MeshStandardMaterial({color:0xf59e0b,metalness:.8,roughness:.3})); sword.add(guard);
+const armL=new THREE.Group(); armL.position.set(.7,1.7,0); hero.add(armL);
+const armLMesh=new THREE.Mesh(new THREE.CapsuleGeometry(.16,.5,4,8),matBody); armLMesh.position.y=-.35; armLMesh.castShadow=true; armL.add(armLMesh);
+const shield=new THREE.Mesh(new THREE.CylinderGeometry(.45,.45,.1,14),new THREE.MeshStandardMaterial({color:0x1e40af,metalness:.5,roughness:.4})); shield.rotation.z=Math.PI/2; shield.position.set(0,-.5,.2); armL.add(shield);
+for(const s of [-1,1]){const leg=new THREE.Mesh(new THREE.CapsuleGeometry(.2,.5,4,8),new THREE.MeshStandardMaterial({color:0x1e3a8a}));leg.position.set(s*.28,.55,0);leg.castShadow=true;hero.add(leg);}
+// ظل دائري + حلقة اندفاع
+const ring=new THREE.Mesh(new THREE.RingGeometry(1,1.35,28),new THREE.MeshBasicMaterial({color:0x38bdf8,transparent:true,opacity:0,side:THREE.DoubleSide})); ring.rotation.x=-Math.PI/2; ring.position.y=.06; hero.add(ring);
+const slashFx=new THREE.Mesh(new THREE.TorusGeometry(1.9,.28,10,24,Math.PI*1.2),new THREE.MeshBasicMaterial({color:0xfef08a,transparent:true,opacity:0})); slashFx.position.y=1.4; hero.add(slashFx);
+
+const vel=new THREE.Vector3(); let heroYaw=Math.PI, camYaw=Math.PI, camPitch=.55, vy=0, grounded=true, swinging=0, dashT=0;
+
+/* ============ الوحوش والغنائم ============ */
+const enemies=[], loots=[], floats=[];
+function slimeMesh(scale,col){const g=new THREE.Group();const b=new THREE.Mesh(new THREE.SphereGeometry(.9*scale,18,16),new THREE.MeshStandardMaterial({color:col,roughness:.35,transparent:true,opacity:.92}));b.position.y=.85*scale;b.scale.y=.85;b.castShadow=true;g.add(b);for(const s of [-1,1]){const e=new THREE.Mesh(new THREE.SphereGeometry(.16*scale,8,8),new THREE.MeshStandardMaterial({color:0xfff}));e.position.set(s*.32*scale,1.05*scale,.72*scale);g.add(e);const p=new THREE.Mesh(new THREE.SphereGeometry(.07*scale,6,6),new THREE.MeshStandardMaterial({color:0x111}));p.position.set(s*.32*scale,1.05*scale,.86*scale);g.add(p);}const m=new THREE.Mesh(new THREE.TorusGeometry(.22*scale,.06*scale,6,12),new THREE.MeshStandardMaterial({color:0x3f1d2e}));m.position.set(0,.55*scale,.78*scale);g.add(m);
+  const hb=document.createElement('canvas');hb.width=64;hb.height=8;const hbt=new THREE.CanvasTexture(hb);const hp=new THREE.Mesh(new THREE.PlaneGeometry(1.6*scale,.22*scale),new THREE.MeshBasicMaterial({map:hbt,transparent:true,depthWrite:false}));hp.position.y=2.1*scale;g.add(hp);g.userData={hb,hbt,hp};return g;}
+function setHpBar(e){const {hb,hbt}=e.mesh.userData;const x=hb.getContext('2d');x.clearRect(0,0,64,8);x.fillStyle='#000a';x.fillRect(0,0,64,8);x.fillStyle=e.boss?'#ef4444':'#4ade80';x.fillRect(1,1,62*Math.max(0,e.hp/e.maxHp),6);hbt.needsUpdate=true;}
+function spawnSlime(boss=false){const scale=boss?3.2:.8+Math.random()*.6;const col=boss?0x7c3aed:[0x4ade80,0x22d3ee,0xfb923c,0xf472b6][Math.random()*4|0];const mesh=slimeMesh(scale,col);let x,z;if(boss){x=0;z=-40;}else{const a=Math.random()*Math.PI*2,r=16+Math.random()*30;x=Math.cos(a)*r;z=Math.sin(a)*r;}mesh.position.set(x,0,z);scene.add(mesh);
+  const e={mesh,hp:boss?320:28+P.lvl*8,maxHp:boss?320:28+P.lvl*8,atk:boss?22:6+P.lvl*2,speed:boss?2.2:1.6+Math.random(),scale,boss,wanderA:Math.random()*7,wt:0,hitT:0,atkT:0,dead:false};setHpBar(e);enemies.push(e);return e;}
+for(let i=0;i<7;i++)spawnSlime();
+let bossSpawned=false;function ensureBoss(){if(quest>=2&&!bossSpawned){bossSpawned=true;const b=spawnSlime(true);SFX.roar();toast('👑 ظهر ملك السلايم في الشمال!');document.getElementById('bosshp').style.display='block';}}
+function dropLoot(x,z,kind){let mesh;if(kind==='coin'){mesh=new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.1,12),new THREE.MeshStandardMaterial({color:0xfacc15,metalness:.8,roughness:.2,emissive:0xa16207,emissiveIntensity:.5}));}else if(kind==='gem'){mesh=new THREE.Mesh(new THREE.OctahedronGeometry(.35),new THREE.MeshStandardMaterial({color:0x38bdf8,emissive:0x0ea5e9,emissiveIntensity:1}));}else{mesh=new THREE.Mesh(new THREE.SphereGeometry(.3,10,10),new THREE.MeshStandardMaterial({color:0xef4444,emissive:0x991b1b,emissiveIntensity:.8}));}mesh.position.set(x,.6,z);mesh.castShadow=true;scene.add(mesh);loots.push({mesh,kind,t:Math.random()*7,vx:(Math.random()-.5)*3,vz:(Math.random()-.5)*3});}
+for(let i=0;i<10;i++){const a=Math.random()*7,r=8+Math.random()*30;dropLoot(Math.cos(a)*r,Math.sin(a)*r,'coin');}
+for(let i=0;i<4;i++){const a=Math.random()*7,r=10+Math.random()*25;dropLoot(Math.cos(a)*r,Math.sin(a)*r,'gem');}
+
+/* ============ واجهة ============ */
+const $=id=>document.getElementById(id);
+function toast(t,ms=2200){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',ms);}
+function dmgNum(worldPos,txt,cls=''){const v=worldPos.clone().project(camera);if(v.z>1)return;const d=document.createElement('div');d.className='dmg '+cls;d.textContent=txt;d.style.left=((v.x*.5+.5)*innerWidth)+'px';d.style.top=((-v.y*.5+.5)*innerHeight)+'px';document.body.appendChild(d);setTimeout(()=>d.remove(),850);}
+function updateHUD(){$('lvl').textContent=P.lvl;$('hptxt').textContent=Math.ceil(P.hp)+'/'+P.maxHp;$('hpbar').firstElementChild.style.width=(100*P.hp/P.maxHp)+'%';$('xpbar').firstElementChild.style.width=(100*P.xp/P.xpNeed)+'%';$('atk').textContent=P.atk;$('coins').textContent=P.coins;$('pots').textContent=P.potions;$('potn').textContent=P.potions;$('kills').textContent=P.kills;
+  const q=QUESTS[Math.min(quest,2)];let prog='';if(quest===0)prog=` (${Math.min(P.gems,q.need)}/${q.need})`;if(quest===1)prog=` (${Math.min(P.killsSince||0,q.need)}/${q.need})`;if(quest===2)prog=bossSpawned?' — اقضِ عليه!':'';
+  $('questxt').textContent=q.t+prog;$('quest').querySelector('b').textContent=`المهمة ${Math.min(quest+1,3)}/3:`;
+  if(P.combo>1){$('combo').style.display='block';$('combo').textContent=`🔥 كومبو x${P.combo}`;}else $('combo').style.display='none';
+  const b=enemies.find(e=>e.boss&&!e.dead);if(b){$('bossfill').style.width=(100*b.hp/b.maxHp)+'%';}}
+function gainXp(n){P.xp+=n;while(P.xp>=P.xpNeed){P.xp-=P.xpNeed;P.lvl++;P.xpNeed=Math.round(P.xpNeed*1.45);P.maxHp+=15;P.hp=P.maxHp;P.atk+=3;SFX.lvl();toast(`⬆️ مستوى ${P.lvl}! قوة +3 وصحة كاملة 🎉`);dmgNum(hero.position.clone().add(new THREE.Vector3(0,2.5,0)),'LEVEL UP!','heal');burst(hero.position,0xfacc15,20);}updateHUD();saveGame();}
+function heal(n){P.hp=Math.min(P.maxHp,P.hp+n);dmgNum(hero.position.clone().add(new THREE.Vector3(0,2.4,0)),'+'+n+' ❤️','heal');updateHUD();}
+function hurt(n){if(P.inv>0||dashT>0||over)return;P.hp-=n;P.inv=.7;SFX.hurt();navigator.vibrate&&navigator.vibrate(60);dmgNum(hero.position.clone().add(new THREE.Vector3(0,2.4,0)),'-'+Math.round(n)+' 💔');shake=.5;updateHUD();if(P.hp<=0)gameOver();}
+function saveGame(){localStorage.setItem('rpg3d_save',JSON.stringify({lvl:P.lvl,atk:P.atk,maxHp:P.maxHp,coins:P.coins}));}
+function burst(pos,color,n=12){for(let i=0;i<n;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(.12,6,6),new THREE.MeshBasicMaterial({color}));m.position.copy(pos).add(new THREE.Vector3(0,1,0));scene.add(m);floats.push({m,vx:(Math.random()-.5)*6,vy:2+Math.random()*5,vz:(Math.random()-.5)*6,life:.7});}}
+
+/* ============ تحكم لمس + كيبورد ============ */
+const keys={};addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='Space'){attack();e.preventDefault();}if(e.code==='ShiftLeft')dash();if(e.code==='KeyF')potion();if(e.code==='KeyP')togglePause();});
+addEventListener('keyup',e=>keys[e.code]=false);
+const joy={x:0,y:0,id:null}, stick=$('stick'),joyBase=$('joystick');
+function joyPos(e){const r=joyBase.getBoundingClientRect();return {cx:r.left+r.width/2,cy:r.top+r.height/2,R:r.width/2};}
+joyBase.addEventListener('touchstart',e=>{e.preventDefault();joy.id=e.changedTouches[0].identifier;},{passive:false});
+addEventListener('touchmove',e=>{for(const t of e.changedTouches){if(t.identifier===joy.id){const {cx,cy,R}=joyPos();let dx=t.clientX-cx,dy=t.clientY-cy;const d=Math.hypot(dx,dy),m=R-10;if(d>m){dx*=m/d;dy*=m/d;}stick.style.transform=`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`;joy.x=dx/m;joy.y=dy/m;}}camTouch(e);},{passive:false});
+addEventListener('touchend',e=>{for(const t of e.changedTouches){if(t.identifier===joy.id){joy.id=null;joy.x=joy.y=0;stick.style.transform='translate(-50%,-50%)';}delete camTouches[t.identifier];}});
+// تدوير الكاميرا بالسحب على يمين/وسط الشاشة
+const camTouches={};let lastPinch=0;
+addEventListener('touchstart',e=>{for(const t of e.changedTouches){if(t.clientX>innerWidth*.35&&t.target.closest&&!t.target.closest('#joystick')&&!t.target.closest('#btns')&&!t.target.closest('button')){camTouches[t.identifier]={x:t.clientX,y:t.clientY};}}},{passive:true});
+function camTouch(e){for(const t of e.changedTouches){const p=camTouches[t.identifier];if(p){camYaw-=(t.clientX-p.x)*.008;camPitch=Math.min(1.2,Math.max(.15,camPitch+(t.clientY-p.y)*.005));camTouches[t.identifier]={x:t.clientX,y:t.clientY};}}}
+// ماوس للكمبيوتر
+let drag=false,lx=0,ly=0;canvas.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;});addEventListener('mouseup',()=>drag=false);addEventListener('mousemove',e=>{if(drag){camYaw-=(e.clientX-lx)*.006;camPitch=Math.min(1.2,Math.max(.15,camPitch+(e.clientY-ly)*.004));lx=e.clientX;ly=e.clientY;}});
+function bindBtn(id,fn){const el=$(id);el.addEventListener('touchstart',e=>{e.preventDefault();fn();},{passive:false});el.addEventListener('mousedown',e=>{e.preventDefault();fn();});}
+bindBtn('btn-atk',attack);bindBtn('btn-jump',jump);bindBtn('btn-dash',dash);bindBtn('btn-potion',potion);
+$('pauseBtn').onclick=()=>togglePause();
+
+/* ============ قتال ============ */
+let shake=0;
+function attack(){if(!running||paused||over||P.atkCD>0)return;P.atkCD=.42;swinging=.35;SFX.swing();
+  setTimeout(()=>{if(!running)return;let hitAny=false;for(const e of enemies){if(e.dead)continue;const d=e.mesh.position.distanceTo(hero.position);if(d<3.4+P.lvl*.05){const to=e.mesh.position.clone().sub(hero.position).normalize();const fwd=new THREE.Vector3(Math.sin(heroYaw),0,Math.cos(heroYaw));if(to.dot(fwd)>-.2){const crit=Math.random()<.18;const dmg=Math.round(P.atk*(crit?2:.85+Math.random()*.4)*(1+P.combo*.04));e.hp-=dmg;e.hitT=.25;setHpBar(e);dmgNum(e.mesh.position.clone().add(new THREE.Vector3(0,2,0)),crit?dmg+'! 💥':dmg,crit?'crit':'');burst(e.mesh.position,crit?0xfde047:0xffffff,crit?14:6);
+    const kb=e.mesh.position.clone().sub(hero.position).setY(0).normalize().multiplyScalar(crit?4:2);e.mesh.position.add(kb);e.mesh.position.x=Math.max(-HALF,Math.min(HALF,e.mesh.position.x));e.mesh.position.z=Math.max(-HALF,Math.min(HALF,e.mesh.position.z));
+    crit?SFX.crit():SFX.hit();hitAny=true;P.combo++;P.comboT=2.5;shake=Math.min(.6,shake+.18);
+    if(e.hp<=0)killEnemy(e);}}}if(hitAny){slashFx.material.opacity=1;}updateHUD();},90);}
+function killEnemy(e){e.dead=true;SFX.hit();P.kills++;P.killsSince=(P.killsSince||0)+1;P.combo++;P.comboT=2.5;burst(e.mesh.position,e.boss?0xa78bfa:0x4ade80,24);scene.remove(e.mesh);
+  const n=e.boss?0:1+Math.floor(Math.random()*2);for(let i=0;i<n;i++)dropLoot(e.mesh.position.x,e.mesh.position.z,'coin');
+  if(!e.boss){if(Math.random()<.5)dropLoot(e.mesh.position.x,e.mesh.position.z,'gem');if(Math.random()<.2)dropLoot(e.mesh.position.x,e.mesh.position.z,'heart');gainXp(e.boss?100:14+Math.floor(Math.random()*8));}
+  else{gainXp(120);SFX.win();}
+  // مهام
+  if(quest===0&&P.gems>=QUESTS[0].need){quest=1;P.killsSince=0;toast('📜 مهمة جديدة: اهزم 6 وحوش! +🧪 جرعتان');P.potions+=2;SFX.lvl();}
+  if(quest===1&&(P.killsSince||0)>=QUESTS[1].need){quest=2;toast('📜 المهمة الأخيرة: واجه الملك في الشمال! 👑');SFX.lvl();}
+  if(e.boss){win();}
+  updateHUD();
+  // إعادة إحياء وحوش للحفاظ على المتعة
+  if(!e.boss)setTimeout(()=>{if(running&&!over&&enemies.filter(x=>!x.dead&&!x.boss).length<6)spawnSlime();},4000);}
+function dash(){if(!running||paused||over||P.dashCD>0)return;P.dashCD=2.2;dashT=.28;SFX.dash();ring.material.opacity=.9;}
+function jump(){if(!running||paused||over||!grounded)return;vy=7;grounded=false;SFX.jump();}
+function potion(){if(!running||paused||over||P.potions<=0||P.hp>=P.maxHp)return;P.potions--;heal(40);SFX.potion();toast('🧪 شُرب جرعة +40 ❤️');updateHUD();}
+
+/* ============ حلقة اللعبة ============ */
+const clock=new THREE.Clock();
+const camTarget=new THREE.Vector3();
+function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);const t=clock.elapsedTime;
+  flames.forEach((f,i)=>{f.scale.setScalar(1+Math.sin(t*9+i*2)*.18);});
+  // حركة البطل
+  if(running&&!paused&&!over){
+    let mx=joy.x,mz=joy.y;
+    if(keys.KeyW||keys.ArrowUp)mz-=1;if(keys.KeyS||keys.ArrowDown)mz+=1;if(keys.KeyA||keys.ArrowLeft)mx-=1;if(keys.KeyD||keys.ArrowRight)mx+=1;
+    const l=Math.hypot(mx,mz);if(l>1){mx/=l;mz/=l;}
+    const sp=(keys.ShiftLeft?8:5.2)*(dashT>0?2.4:1);
+    // تحويل حسب الكاميرا
+    const sin=Math.sin(camYaw),cos=Math.cos(camYaw);
+    const wx=(mx*cos-mz*sin)*sp*dt, wz=(-mx*sin-mz*cos)*sp*dt;
+    hero.position.x=Math.max(-HALF,Math.min(HALF,hero.position.x+wx));
+    hero.position.z=Math.max(-HALF,Math.min(HALF,hero.position.z+wz));
+    if(l>.15){heroYaw=Math.atan2(wx||mx*.01, wz||mz*.01);if(!wx&&!wz)heroYaw=Math.atan2(mx*cos-mz*sin,-mx*sin-mz*cos);
+      // مشية: تمايل
+      body.position.y=1.15+Math.abs(Math.sin(t*10))*.08;hero.rotation.y=heroYaw+Math.PI;}
+    else body.position.y=1.15;
+    hero.rotation.y+=( (heroYaw+Math.PI)-hero.rotation.y)*.15;
+    // قفز/جاذبية
+    vy-=18*dt;hero.position.y+=vy*dt;if(hero.position.y<=0){hero.position.y=0;vy=0;grounded=true;}else grounded=false;
+    // سيف
+    if(swinging>0){swinging-=dt;armR.rotation.x=-2.2*Math.sin((0.35-swinging)/0.35*Math.PI);slashFx.material.opacity=Math.max(0,swinging*2);slashFx.rotation.z+=dt*14;}else{armR.rotation.x=Math.sin(t*6)*.15;slashFx.material.opacity=0;}
+    armL.rotation.x=-Math.sin(t*6)*.15;
+    if(P.atkCD>0)P.atkCD-=dt;if(P.dashCD>0)P.dashCD-=dt;if(dashT>0){dashT-=dt;ring.material.opacity=Math.max(0,dashT*3);ring.scale.setScalar(1+(0.28-dashT)*4);}
+    if(P.inv>0){P.inv-=dt;body.visible=Math.floor(t*14)%2===0;}else body.visible=true;
+    if(P.comboT>0){P.comboT-=dt;if(P.comboT<=0)P.combo=0;}
+    // غنائم: جذب والتقاط
+    for(let i=loots.length-1;i>=0;i--){const L=loots[i];L.t+=dt;L.mesh.rotation.y+=dt*3;L.mesh.position.y=.6+Math.sin(L.t*4)*.12;
+      L.mesh.position.x+=L.vx*dt;L.mesh.position.z+=L.vz*dt;L.vx*=.92;L.vz*=.92;
+      const d=L.mesh.position.distanceTo(hero.position);
+      if(d<5){const p=hero.position.clone().sub(L.mesh.position).setY(0).normalize();L.mesh.position.add(p.multiplyScalar((6-d)*dt*3));}
+      if(d<1.2){scene.remove(L.mesh);loots.splice(i,1);
+        if(L.kind==='coin'){P.coins++;SFX.coin();dmgNum(hero.position.clone().add(new THREE.Vector3(0,2,0)),'+1 🪙','coin');}
+        else if(L.kind==='gem'){P.gems++;gainXp(8);SFX.gem();dmgNum(hero.position.clone().add(new THREE.Vector3(0,2,0)),'+جوهرة 💎','coin');
+          if(quest===0&&P.gems>=QUESTS[0].need){quest=1;P.killsSince=0;toast('📜 مهمة جديدة: اهزم 6 وحوش! +🧪 جرعتان');P.potions+=2;}}
+        else{heal(15);SFX.potion();}
+        updateHUD();}}
+    // وحوش AI
+    for(const e of enemies){if(e.dead)continue;const d=e.mesh.position.distanceTo(hero.position);
+      e.mesh.position.y=Math.abs(Math.sin(t*5+e.wanderA))*.15*e.scale;
+      if(e.hitT>0)e.hitT-=dt;
+      e.mesh.userData.hp.lookAt(camera.position);
+      if(e.boss&&d<30)document.getElementById('bosshp').style.display='block';
+      if(d<13&&d>2){const dir=hero.position.clone().sub(e.mesh.position).setY(0).normalize();e.mesh.position.add(dir.multiplyScalar(e.speed*dt));e.mesh.lookAt(hero.position.x,0,hero.position.z);}
+      else if(d>=13){e.wt-=dt;if(e.wt<=0){e.wanderA=Math.random()*7;e.wt=2+Math.random()*2;}e.mesh.position.x+=Math.sin(e.wanderA)*e.speed*.4*dt;e.mesh.position.z+=Math.cos(e.wanderA)*e.speed*.4*dt;}
+      e.mesh.position.x=Math.max(-HALF,Math.min(HALF,e.mesh.position.x));e.mesh.position.z=Math.max(-HALF,Math.min(HALF,e.mesh.position.z));
+      if(d<2.3){e.atkT-=dt;if(e.atkT<=0){e.atkT=e.boss?1.6:1.2;hurt(e.atk*(0.85+Math.random()*.3));e.mesh.scale.setScalar(1.25);setTimeout(()=>e.mesh.scale.setScalar(1),180);
+        if(e.boss){ringBoss(e);}}}
+      if(e.hitT>0)e.mesh.children[0].material.emissive=new THREE.Color(0xff0000);else e.mesh.children[0].material.emissive=new THREE.Color(0x000000);}
+    ensureBoss();
+    updateHUD();drawMini();
+  }
+  // جسيمات
+  for(let i=floats.length-1;i>=0;i--){const f=floats[i];f.life-=dt;f.m.position.x+=f.vx*dt;f.m.position.y+=f.vy*dt;f.m.position.z+=f.vz*dt;f.vy-=9*dt;f.m.scale.setScalar(Math.max(.01,f.life));if(f.life<=0){scene.remove(f.m);floats.splice(i,1);}}
+  // كاميرا تتبع
+  const cd=8.5,ch=2.2+camPitch*7;
+  camTarget.set(hero.position.x-Math.sin(camYaw)*cd*Math.cos(camPitch*.5),ch,hero.position.z-Math.cos(camYaw)*cd*Math.cos(camPitch*.5));
+  camera.position.lerp(camTarget,1-Math.pow(.001,dt));
+  if(shake>0){shake-=dt;camera.position.x+=(Math.random()-.5)*shake;camera.position.y+=(Math.random()-.5)*shake;}
+  camera.lookAt(hero.position.x,2,hero.position.z);
+  renderer.render(scene,camera);
+}
+function ringBoss(e){const r=new THREE.Mesh(new THREE.RingGeometry(1,5,26),new THREE.MeshBasicMaterial({color:0xef4444,transparent:true,opacity:.8,side:THREE.DoubleSide}));r.rotation.x=-Math.PI/2;r.position.copy(e.mesh.position).setY(.1);scene.add(r);let s=0;const iv=setInterval(()=>{s+=.12;r.scale.setScalar(1+s);r.material.opacity-=.06;if(r.material.opacity<=0){clearInterval(iv);scene.remove(r);}},40);}
+const mm=$('minimap').getContext('2d');
+function drawMini(){mm.clearRect(0,0,220,220);mm.fillStyle='#0f2a18';mm.fillRect(0,0,220,220);mm.fillStyle='#1d4d2c';mm.beginPath();mm.arc(110,110,95,0,7);mm.fill();
+  const W=pos=>110+pos/HALF*95;
+  mm.fillStyle='#f59e0b';for(const L of loots){mm.fillRect(W(L.mesh.position.x)-2,W(L.mesh.position.z)-2,4,4);}
+  for(const e of enemies){if(e.dead)continue;mm.fillStyle=e.boss?'#a855f7':'#ef4444';mm.beginPath();mm.arc(W(e.mesh.position.x),W(e.mesh.position.z),e.boss?7:4,0,7);mm.fill();}
+  mm.fillStyle='#3b82f6';mm.beginPath();mm.arc(W(hero.position.x),W(hero.position.z),6,0,7);mm.fill();
+  mm.strokeStyle='#fff';mm.lineWidth=3;mm.beginPath();mm.moveTo(W(hero.position.x),W(hero.position.z));mm.lineTo(W(hero.position.x)+Math.sin(heroYaw+Math.PI)*16,W(hero.position.z)+Math.cos(heroYaw+Math.PI)*16);mm.stroke();}
+
+/* ============ بدء/نهاية ============ */
+function startGame(fresh){if(fresh){P.lvl=1;P.hp=P.maxHp=100;P.atk=12;P.xp=0;P.xpNeed=60;P.coins=0;P.gems=0;P.kills=0;P.potions=3;P.combo=0;quest=0;P.killsSince=0;}
+  $('menu').style.display='none';$('over').style.display='none';$('win').style.display='none';$('paused').style.display='none';$('hud').classList.add('on');$('bosshp').style.display='none';
+  hero.position.set(0,0,6);running=true;paused=false;over=false;ac();updateHUD();toast('⚔️ ابحث عن الجواهر الذهبية!');}
+function gameOver(){over=true;running=false;SFX.roar();$('overStats').innerHTML=`المستوى <b>${P.lvl}</b> • 🪙 ${P.coins} • 👹 ${P.kills} قتلة<br>اجمع الجواهر وطوّر سيفك في المحاولة القادمة! 💪`;$('over').style.display='flex';$('hud').classList.remove('on');}
+function win(){over=true;running=false;SFX.win();localStorage.removeItem('rpg3d_save');$('winStats').innerHTML=`هزمت ملك السلايم! 👑<br>المستوى <b>${P.lvl}</b> • 🪙 ${P.coins} • 👹 ${P.kills} قتلة<br>أنت بطل المملكة الحقيقي! 🏆`;$('win').style.display='flex';$('hud').classList.remove('on');$('bosshp').style.display='none';}
+function togglePause(){if(!running&&!paused)return;paused=!paused;$('paused').style.display=paused?'flex':'none';}
+$('startBtn').onclick=()=>startGame(true);
+$('retryBtn').onclick=()=>startGame(true);$('againBtn').onclick=()=>startGame(true);$('restartBtn').onclick=()=>startGame(true);
+$('resumeBtn').onclick=()=>togglePause();
+$('soundBtn').onclick=e=>{soundOn=!soundOn;e.target.textContent=soundOn?'🔊 الصوت: يعمل':'🔇 الصوت: متوقف';};
+if(save&&save.lvl>1){$('contBtn').style.display='block';$('svl').textContent=save.lvl;$('contBtn').onclick=()=>{P.lvl=save.lvl;P.atk=save.atk;P.maxHp=save.maxHp;P.hp=P.maxHp;P.coins=save.coins||0;startGame(false);};}
+
+document.getElementById('loading').style.display='none';
+updateHUD();animate();
+</script>
+</body>
+</html>
