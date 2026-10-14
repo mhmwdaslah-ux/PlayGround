@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HAJWALA: Saudi Drift & Highway Legends — Game Design Document</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <p class="kicker">GAME DESIGN DOCUMENT • 3D • PHONE / TABLET • NEXT-GEN</p>
+    <h1>HAJWALA <span class="ar">هجولة</span><br/>Saudi Drift &amp; Highway Legends</h1>
+    <p class="tagline">Ultra-realistic drifting (تفحيط), highway cruising (خطوط), and deep car culture — optimized for mobile &amp; mid-range PC. Smooth. Fluid. Zero-lag. <span class="ar">سلسة جداً بدون لاق</span>.</p>
+    <nav class="toc">
+      <a href="#overview">Overview</a>
+      <a href="#audience">Audience</a>
+      <a href="#loop">Core Loop</a>
+      <a href="#cars">Car Lineup</a>
+      <a href="#garage">Garage / Tuning</a>
+      <a href="#physics">Physics &amp; Damage</a>
+      <a href="#maps">Maps</a>
+      <a href="#visual">Visual Style</a>
+      <a href="#perf">Performance</a>
+    </nav>
+    <div class="hero-stats">
+      <div><strong>60 FPS</strong><span>target on mid phones</span></div>
+      <div><strong>12+</strong><span>iconic Hajwala cars</span></div>
+      <div><strong>3</strong><span>map archetypes</span></div>
+      <div><strong>0-lag</strong><span>object pooling + LOD</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+<section id="play" class="card game-card">
+  <h2>🎮 Play Now — العب الآن <span class="ar">هجولة حقيقية</span></h2>
+  <p class="note">Keyboard: <strong>WASD / Arrows</strong> drive • <strong>SPACE</strong> handbrake (جلنط) • Touch buttons work on phone/tablet. Choose car, map, tune in garage, then drift!</p>
+  <div class="game-top">
+    <div class="car-select" id="carSelect"></div>
+    <div class="map-select" id="mapSelect">
+      <button data-map="khat" class="active">🛣️ Khat خط طويل</button>
+      <button data-map="city">🏙️ City تطعيس</button>
+      <button data-map="mataar">✈️ Mataar مطار</button>
+    </div>
+  </div>
+  <div class="game-wrap">
+    <canvas id="game" width="900" height="520"></canvas>
+    <div class="hud">
+      <div><span>SPEED</span><strong id="hudSpeed">0</strong><small>km/h</small></div>
+      <div><span>DRIFT</span><strong id="hudDrift">0</strong><small>pts</small></div>
+      <div><span>DAMAGE تعفط</span><strong id="hudDamage">0%</strong><div class="dmgbar"><i id="dmgFill"></i></div></div>
+      <div><span>CASH</span><strong id="hudCash">500</strong><small>﷼</small></div>
+    </div>
+  </div>
+  <div class="garage">
+    <label>🎨 Paint صبغ <input type="color" id="paintColor" value="#e8e8e8" /></label>
+    <label>🕶️ Tint تظليل <input type="range" id="tintRange" min="0" max="85" value="30" /> <b id="tintVal">30%</b></label>
+    <label>⬇️ Suspension تهبيط/ترفيع <input type="range" id="suspRange" min="-6" max="6" value="-2" /> <b id="suspVal">-2</b></label>
+    <label>🔥 Turbo تيربو <input type="checkbox" id="turboCheck" /></label>
+    <button id="repairBtn">🔧 Repair إصلاح (200﷼)</button>
+    <button id="resetBtn">🔄 Reset تصفير النقاط</button>
+  </div>
+  <div class="touch-controls">
+    <div class="tc-left">
+      <button data-k="left">◀</button>
+      <button data-k="right">▶</button>
+    </div>
+    <div class="tc-right">
+      <button data-k="up">▲</button>
+      <button data-k="down">▼</button>
+      <button data-k="handbrake" class="hb">جلنط!</button>
+    </div>
+  </div>
+  <p id="gameMsg" class="small"></p>
+</section>
+<section id="overview" class="card">
+  <h2>1. Concept Overview <span class="ar">الفكرة العامة</span></h2>
+  <p><strong>HAJWALA: Saudi Drift &amp; Highway Legends</strong> is a next-generation 3D driving &amp; drifting simulation celebrating Saudi car culture: <em>Hajwala (هجولة)</em>, highway cruising, <em>Khabaat (خبات)</em>, <em>Ta'tees (تطعيس بين السيارات)</em>, and airport <em>Mataar (مطار)</em> drift meets. Players master weight-transfer drifting, top-speed highway runs, and near-traffic threading — then show off tuned builds in the Garage.</p>
+  <div class="grid2">
+    <div><h3>Design pillars</h3><ul>
+      <li><strong>Authenticity (أصالة):</strong> real Saudi line-up, Arabic plates, tinting (تظليل), desert highways.</li>
+      <li><strong>Simulation depth:</strong> tire grip, weight transfer, drift suspension, turbo tuning.</li>
+      <li><strong>Visible consequence:</strong> dynamic deformation — dent, crumple, smash (تتعفط، تنصدم، وتتكسر).</li>
+      <li><strong>Fluidity (سلاسة):</strong> zero-lag even with damage sim on mobile.</li>
+    </ul></div>
+    <div><h3>Modes</h3><ul>
+      <li><strong>Hajwala Free Drift:</strong> score chains for angle, speed, proximity, "نطل" transitions.</li>
+      <li><strong>Highway Cruise (خطوط طويلة):</strong> infinite desert highway, slipstream, Khabaat jumps.</li>
+      <li><strong>Ta'tees Traffic Attack:</strong> dense city AI traffic weaving without crashing.</li>
+      <li><strong>Mataar Arena:</strong> coned airport tracks, tandem battles, online leaderboards.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="audience" class="card">
+  <h2>2. Target Audience <span class="ar">الجمهور المستهدف</span></h2>
+  <div class="grid3">
+    <div class="pill"><strong>Primary: MENA mobile (13–30)</strong><p>Hajwala &amp; highway fans in KSA / Gulf. Play on phone/tablet, short sessions, show-off culture, Arabic-first UI with English dev terms.</p></div>
+    <div class="pill"><strong>Secondary: sim-drift fans (PC)</strong><p>Mid-range PC players who want realistic vehicle dynamics without iRacing complexity. Controller + touch + tilt.</p></div>
+    <div class="pill"><strong>Creators</strong><p>Clip-worthy crashes, deformation close-ups, livery + plate customization for TikTok/YouTube Shorts.</p></div>
+  </div>
+  <p class="note">Rating target: E10+ / PEGI 7 with stylized (non-gory) crash deformation. Full Arabic + English localization, Hijri event calendar, Saudi plates &amp; regions (الرياض، جدة، الدمام).</p>
+</section>
+
+<section id="loop" class="card">
+  <h2>3. Core Gameplay Loop</h2>
+  <ol class="loop">
+    <li><strong>Cruise / Drift →</strong> chain drift score + near-miss bonuses on highway or arena.</li>
+    <li><strong>Earn Rials + Rep →</strong> clean lines raise multiplier; crashes bank half but deform the car.</li>
+    <li><strong>Tune in Garage (تعديل وتزويد) →</strong> spend on visual (شكل) &amp; mechanical (تزويد) upgrades.</li>
+    <li><strong>Show &amp; Compete →</strong> Mataar tandem, time attack, photo mode; climb seasonal ladder.</li>
+  </ol>
+  <p>Session length: 3–7 min runs. Retention hooks: daily "خط" (highway challenge), weekly drift conditions (heat → less grip), garage collection completion.</p>
+</section>
+
+<section id="cars" class="card">
+  <h2>4. Authentic Car Lineup <span class="ar">قائمة سيارات واقعية</span></h2>
+  <p>Front-engine RWD/FWD sedans famous for <em>شطف</em> (sweeping) and <em>تطويف</em> (floating slides). Each ships in 2–3 generations with distinct wheelbase, mass, steering lock.</p>
+  <div class="cargrid">
+    <article><h3>Toyota Camry <span class="ar">كوامري</span></h3><p>Generations: 2007 "قراندي", 2016, 2022 GR. The people's drift king — balanced slide, huge lock kit potential.</p><span class="tag">RWD-swap tune</span></article>
+    <article><h3>Kia Cadenza <span class="ar">كادينزا</span></h3><p>Long wheelbase floater. Stable high-speed تطويف, lazy transitions, VIP stance builds.</p><span class="tag">Highway S-tier</span></article>
+    <article><h3>Nissan Sunny <span class="ar">صني</span></h3><p>Lightweight chaos box. Snappy نطل flicks, cheap to repair — beginner favourite.</p><span class="tag">Beginner</span></article>
+    <article><h3>Ford Taurus <span class="ar">تورس</span></h3><p>Heavy V6 cruiser. Massive momentum drifts, brutal Khabaat landings.</p><span class="tag">Torque monster</span></article>
+    <article><h3>Hyundai Accent &amp; Elantra</h3><p>Affordable شطف platforms. Elantra N-line turbo tune; Accent featherweight slides.</p><span class="tag">Street class</span></article>
+    <article><h3>Icons pack</h3><p>Caprice SS "كابرس", Lumina, Avalon "أفلون", Altima, Camaro drift-spec, Land Cruiser "شاص" parade trim (non-drift).</p><span class="tag">Season 1 DLC</span></article>
+  </div>
+</section>
+
+<section id="garage" class="card">
+  <h2>5. Deep Customization — Garage <span class="ar">نظام تعديل عميق</span></h2>
+  <div class="grid2">
+    <div><h3>Visual — شكل</h3><ul>
+      <li><strong>Body kits:</strong> bumpers, skirts, spoilers, wide-body; LOD-swapped meshes.</li>
+      <li><strong>Paint:</strong> metallic / matte / pearlescent + custom hex; dirt &amp; scratch layers.</li>
+      <li><strong>Window tinting (تظليل):</strong> 0–90% realistic transmission shader, legal-limit warnings.</li>
+      <li><strong>Plates:</strong> Saudi format, region + letters/numbers, Arabic font, frame styles.</li>
+      <li><strong>Rims (جنوط):</strong> diameter/width/offset, camber preview, 40+ licensed-style designs.</li>
+      <li><strong>Suspension height (تهبيط / ترفيع):</strong> slider with fender-gap + scrub-radius readout.</li>
+    </ul></div>
+    <div><h3>Mechanical — تزويد</h3><ul>
+      <li><strong>Engine:</strong> ECU stages 1–4, forged internals, redline +500–2000 rpm.</li>
+      <li><strong>Forced induction:</strong> turbo / supercharger with boost curve, lag, BOV sound, intercooler.</li>
+      <li><strong>Brakes:</strong> pads → big-brake kits; bias slider for drift initiation.</li>
+      <li><strong>Drift suspension:</strong> coilovers, angle kits (+60° lock), welded-diff option, tire compounds (street / semi / drift).</li>
+      <li><strong>Damage-aware tuning:</strong> roll-cage reduces deformation 30% but +40 kg.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="physics" class="card">
+  <h2>6. Physics &amp; Dynamic Deformation Damage <span class="ar">فيزياء وواقعية</span></h2>
+  <div class="grid2">
+    <div><h3>Vehicle dynamics</h3><ul>
+      <li><strong>Tire model:</strong> simplified Pacejka + thermal grip falloff; front/rear split; handbrake locks rear.</li>
+      <li><strong>Weight transfer:</strong> longitudinal/lateral load, body roll, suspension travel visualized.</li>
+      <li><strong>Drift mechanics (تفحيط ونطل):</strong> clutch-kick, feint, brake-drift, "نطل" weight-flick bonus when switching lock mid-slide.</li>
+      <li><strong>Surface:</strong> asphalt / sand bleed / painted runway markings with per-zone friction.</li>
+      <li><strong>Assists:</strong> arcade → sim slider; gyro steering on mobile.</li>
+    </ul></div>
+    <div><h3>Deformation system (تتعفط، تنصدم، وتتكسر)</h3><ul>
+      <li><strong>Impact solver:</strong> velocity + angle → per-panel dent depth, crumple zones fold, glass cracks, bumpers detach.</li>
+      <li><strong>Visual:</strong> vertex-displacement + normal recompute, scratch/dent maps; doors/hood jam when crushed.</li>
+      <li><strong>Mechanical:</strong> radiator leak, alignment pull, power loss after hard front hits.</li>
+      <li><strong>Perf-safe:</strong> damage on low-poly "crash proxy" mesh, baked back to render mesh at 10 Hz.</li>
+    </ul></div>
+  </div>
+  <table>
+    <tr><th>Impact speed</th><th>Result</th><th>Gameplay</th></tr>
+    <tr><td>&lt; 20 km/h</td><td>Scratches, small dents (تعفط خفيف)</td><td>No penalty</td></tr>
+    <tr><td>20–60 km/h</td><td>Crumpled panels, cracked lights</td><td>Score bank halved</td></tr>
+    <tr><td>&gt; 60 km/h / rollover</td><td>Smashed frame, parts detach (تتكسر)</td><td>Run ends / repair cost</td></tr>
+  </table>
+</section>
+
+<section id="maps" class="card">
+  <h2>7. Maps &amp; Environment <span class="ar">مابات وخطوط طويلة</span></h2>
+  <div class="grid3">
+    <div class="pill"><strong>A. Infinite Desert Highway (خطوط طويلة مفتوحة)</strong><p>Chunk-streamed 2×3-lane highway, dunes, fuel stations, Khabaat (خبات) crests for jumps. Day/night heat-haze, sand gusts. Top-speed + slipstream events.</p></div>
+    <div class="pill"><strong>B. City + AI Traffic (تطعيس بين السيارات)</strong><p>Riyadh-inspired grid: KAFD-style towers, roundabouts, souq alleys. 40+ AI traffic cars with lane-change AI for near-miss threading.</p></div>
+    <div class="pill"><strong>C. Mataar Arena (مطار)</strong><p>Abandoned airport: runway drag strip, coned gymkhana, tandem drift circuit. Spectator stands, tire walls, skid-mark persistence.</p></div>
+  </div>
+</section>
+
+<section id="visual" class="card">
+  <h2>8. Visual Style</h2>
+  <p>Stylized-realism: PBR cars with clearcoat, baked desert GI + real-time sun, heat shimmer, volumetric dust behind sliding tires. Arabic signage, neon garage, Saudi-plate typography. Photo mode with aperture + shutter-speed motion blur. Touch UI: big thumb sliders for تهبيط/ترفيع, one-tap تظليل presets.</p>
+</section>
+
+<section id="perf" class="card">
+  <h2>9. Performance Optimization — Smooth &amp; Fluid <span class="ar">أداء سلس وبدون لاق</span></h2>
+  <div class="grid2">
+    <div><h3>Zero-lag strategy</h3><ul>
+      <li><strong>Object pooling:</strong> traffic, particles, debris, skid quads — zero per-frame alloc.</li>
+      <li><strong>LOD management:</strong> 3 car LODs + interior cull; traffic beyond 150 m = impostor boxes.</li>
+      <li><strong>Efficient shaders:</strong> 1 uber-car shader, half-precision on mobile, tints via uniform not texture swap.</li>
+      <li><strong>Damage throttling:</strong> deformation at 10 Hz, normals on damage events only.</li>
+      <li><strong>Streaming:</strong> highway chunks recycled; textures ASTC/ETC2; audio OGG.</li>
+    </ul></div>
+    <div><h3>Budgets (mid-range phone)</h3><ul>
+      <li>≤ 120 draw calls, ≤ 250k tris visible, ≤ 60 MB texture memory.</li>
+      <li>Physics fixed 60 Hz, render 30/60 adaptive; dynamic resolution 0.7–1.0×.</li>
+      <li>Cold start &lt; 6 s, run restart &lt; 1 s, hitch-free chunk swaps.</li>
+      <li>Quality presets: Battery / Balanced / Beast + auto-tuner.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="card footer">
+  <h2>GDD Sign-off</h2>
+  <p>Scope: vertical slice = 3 cars (Camry كوامري, Cadenza كادينزا, Sunny صني) + 1 highway chunk + Mataar arena + Garage v1. Next: multiplayer tandem + police-chase "مطاردة" mode.</p>
+  <p class="small">Single-file static build. No backend required. Touch + keyboard + gamepad. 3D via Three.js-ready asset slots (GLB).</p>
+  <button id="startBtn">Start Engine — ابدأ</button>
+  <p id="status" class="small"></p>
+</section>
+</main>
+
+<footer><p>HAJWALA GDD concept • Built for PlayGround preview • All content rendered statically for instant load.</p></footer>
+<script src="app.js"></script>
+</body>
+</html>
