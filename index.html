@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#041017" />
+    <meta name="description" content="NOVA ELEVEN - an original 3D arcade football game. Pick a club, set your tactics and chase the Aurora Cup." />
+    <title>NOVA ELEVEN — Original 3D Arcade Football</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307171f'/%3E%3Cpath d='M18 48V16h8l12 19V16h8v32h-8L26 29v19z' fill='%2347f5c6'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="NOVA ELEVEN 3D football pitch"></canvas>
+      <div class="screen-fx" aria-hidden="true">
+        <div class="scanlines"></div>
+        <div class="vignette"></div>
+        <div class="grain"></div>
+      </div>
+
+      <main id="ui">
+        <section id="loadingScreen" class="screen active loading-screen" aria-live="polite">
+          <div class="loader-mark" aria-hidden="true"><span>N</span></div>
+          <p class="eyebrow">PREPARING THE PITCH</p>
+          <h1 class="loading-title">NOVA <span>ELEVEN</span></h1>
+          <div class="loading-track"><i></i></div>
+          <p class="loading-note" id="loadingNote">Building the stadium…</p>
+        </section>
+
+        <section id="mainMenu" class="screen menu-screen" aria-label="Main menu">
+          <div class="menu-shell">
+            <header class="menu-header">
+              <div class="mini-brand">
+                <span class="mini-mark">N</span>
+                <div><strong>NOVA ELEVEN</strong><small>ORIGINAL ARCADE FOOTBALL</small></div>
+              </div>
+              <div class="header-actions">
+                <span class="season-chip">SEASON 01</span>
+                <button class="ghost-button" id="menuHelpButton" type="button">HOW TO PLAY</button>
+                <button class="icon-button" id="menuSettingsButton" type="button" aria-label="Open settings">
+                  <span></span><span></span><span></span>
+                </button>
+              </div>
+            </header>
+
+            <div class="menu-layout">
+              <div class="menu-copy">
+                <p class="eyebrow">THE NIGHT LEAGUE IS BACK</p>
+                <h1 class="hero-title"><span>NOVA</span><span class="hollow">ELEVEN</span></h1>
+                <p class="hero-tagline">THE BEAUTIFUL GAME. <em>RE-ENERGIZED.</em></p>
+                <p class="hero-lead">Eleven-a-side arcade football with real shape, real pressure and a stadium built for the spotlight. Pick a club. Set your line. Chase the Aurora Cup.</p>
+                <div class="record-strip">
+                  <span>YOUR RECORD</span>
+                  <strong id="profileRecord">0 WINS · 0 GOALS</strong>
+                  <span id="profileBest">PRACTICE BEST 0</span>
+                </div>
+              </div>
+
+              <div class="menu-side">
+                <nav class="menu-actions" aria-label="Game modes">
+                  <button class="menu-button primary" data-route="quick" type="button">
+                    <span class="menu-number">01</span>
+                    <span class="menu-label"><strong>QUICK MATCH</strong><small>Pick two clubs and play</small></span>
+                    <span class="menu-arrow">→</span>
+                  </button>
+                  <button class="menu-button" data-route="tournament" type="button">
+                    <span class="menu-number">02</span>
+                    <span class="menu-label"><strong>TOURNAMENT</strong><small id="tournamentSubtitle">Eight clubs. One trophy.</small></span>
+                    <span class="menu-arrow">→</span>
+                  </button>
+                  <button class="menu-button" data-route="practice" type="button">
+                    <span class="menu-number">03</span>
+                    <span class="menu-label"><strong>PRACTICE</strong><small>Sharpen passing and finishing</small></span>
+                    <span class="menu-arrow">→</span>
+                  </button>
+                  <button class="menu-button quiet" data-route="help" type="button">
+                    <span class="menu-number">04</span>
+                    <span class="menu-label"><strong>CONTROLS</strong><small>Keyboard, gamepad and touch</small></span>
+                    <span class="menu-arrow">→</span>
+                  </button>
+                </nav>
+
+                <article class="match-poster">
+                  <div class="poster-top">
+                    <span>FEATURED FIXTURE</span>
+                    <span class="live-dot">NIGHT KICKOFF</span>
+                  </div>
+                  <div class="poster-teams">
+                    <div class="poster-team">
+                      <span class="crest crest-lg" style="--c1:#31f2c5;--c2:#072b33">AUR</span>
+                      <strong>AURORA FC</strong>
+                      <small>NORTHLIGHT</small>
+                    </div>
+                    <div class="poster-vs"><span>VS</span><em>20:45</em></div>
+                    <div class="poster-team away">
+                      <span class="crest crest-lg" style="--c1:#ff5b57;--c2:#2b0a12">COM</span>
+                      <strong>CRIMSON COMETS</strong>
+                      <small>RED MESA</small>
+                    </div>
+                  </div>
+                  <div class="poster-bottom">
+                    <span>AURORA CUP · MATCHDAY 01</span>
+                    <span class="poster-arrow">NOVA STADIUM</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <footer class="menu-footer">
+              <span>3D MATCH ENGINE · OFFLINE SAVE · LOCAL 2P</span>
+              <span class="footer-tip" id="menuTip">TIP: HOLD SHOOT TO POWER UP.</span>
+              <span>V1.0</span>
+            </footer>
+          </div>
+        </section>
+
+        <section id="quickSetup" class="screen flow-screen" aria-label="Quick match setup">
+          <div class="flow-shell">
+            <header class="flow-header">
+              <button class="back-button" data-back="menu" type="button">← BACK</button>
+              <div class="flow-title"><p class="eyebrow">QUICK MATCH</p><h2>PICK YOUR CLUB</h2></div>
+              <span class="flow-step">01 / 02</span>
+            </header>
+            <div class="setup-layout">
+              <div class="setup-main">
+                <div class="section-label"><span>YOUR CLUB</span><span id="selectedTeamLabel">AURORA FC</span></div>
+                <div id="quickTeamGrid" class="team-grid" role="listbox" aria-label="Choose your club"></div>
+              </div>
+              <aside class="setup-side">
+                <div class="opponent-card">
+                  <div class="opponent-heading"><span>OPPONENT</span><button id="randomOpponent" class="text-button" type="button">RANDOM RIVAL</button></div>
+                  <label class="select-shell">
+                    <span class="crest" id="opponentCrest" style="--c1:#ff5b57;--c2:#2b0a12">COM</span>
+                    <select id="opponentSelect" aria-label="Choose opponent"></select>
+                  </label>
+                  <div class="mini-vs">
+                    <span id="homeMiniName">AURORA FC</span><em>VS</em><span id="awayMiniName">CRIMSON COMETS</span>
+                  </div>
+                </div>
+                <div class="option-card">
+                  <div class="option-row">
+                    <span>MATCH LENGTH</span>
+                    <div class="segmented" id="lengthOptions">
+                      <button data-length="3" type="button">3 MIN</button>
+                      <button data-length="5" class="active" type="button">5 MIN</button>
+                      <button data-length="10" type="button">10 MIN</button>
+                    </div>
+                  </div>
+                  <div class="option-row">
+                    <span>DIFFICULTY</span>
+                    <div class="segmented" id="difficultyOptions">
+                      <button data-difficulty="rookie" type="button">ROOKIE</button>
+                      <button data-difficulty="pro" class="active" type="button">PRO</button>
+                      <button data-difficulty="legend" type="button">LEGEND</button>
+                    </div>
+                  </div>
+                  <div class="option-row">
+                    <span>PLAYERS</span>
+                    <div class="segmented" id="playerOptions">
+                      <button data-players="1" class="active" type="button">SOLO</button>
+                      <button data-players="2" type="button">LOCAL 2P</button>
+                    </div>
+                  </div>
+                  <p class="option-hint" id="playerHint">Play as the home club. Your teammates are driven by role-based AI.</p>
+                </div>
+                <button class="cta-button" id="startQuickMatch" type="button">
+                  <span>KICK OFF</span><small>NOVA STADIUM · NIGHT</small>
+                </button>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <section id="tournamentScreen" class="screen flow-screen" aria-label="Tournament">
+          <div class="flow-shell">
+            <header class="flow-header">
+              <button class="back-button" data-back="menu" type="button">← BACK</button>
+              <div class="flow-title"><p class="eyebrow">AURORA CUP</p><h2>THE ROAD TO GLORY</h2></div>
+              <span class="flow-step">KNOCKOUT</span>
+            </header>
+            <div id="tournamentContent" class="tournament-content"></div>
+          </div>
+        </section>
+
+        <section id="helpScreen" class="screen modal-screen" aria-label="Controls and rules">
+          <div class="modal-shell help-shell">
+            <header class="modal-header">
+              <div><p class="eyebrow">MATCH MANUAL</p><h2>HOW TO PLAY</h2></div>
+              <button class="close-button" data-close="help" type="button" aria-label="Close">×</button>
+            </header>
+            <div class="help-grid">
+              <div class="help-card">
+                <h3>KEYBOARD · PLAYER 1</h3>
+                <div class="control-row"><span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>Move</span></div>
+                <div class="control-row"><span class="keys"><kbd>SHIFT</kbd></span><span>Sprint / stamina</span></div>
+                <div class="control-row"><span class="keys"><kbd>SPACE</kbd></span><span>Hold to shoot · tap to tackle</span></div>
+                <div class="control-row"><span class="keys"><kbd>E</kbd></span><span>Pass</span></div>
+                <div class="control-row"><span class="keys"><kbd>Q</kbd></span><span>Through pass</span></div>
+                <div class="control-row"><span class="keys"><kbd>F</kbd></span><span>Switch player</span></div>
+                <div class="control-row"><span class="keys"><kbd>C</kbd></span><span>Slide tackle</span></div>
+              </div>
+              <div class="help-card">
+                <h3>LOCAL 2P · PLAYER 2</h3>
+                <div class="control-row"><span class="keys"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span><span>Move</span></div>
+                <div class="control-row"><span class="keys"><kbd>R-SHIFT</kbd></span><span>Sprint</span></div>
+                <div class="control-row"><span class="keys"><kbd>ENTER</kbd></span><span>Hold to shoot · tap to tackle</span></div>
+                <div class="control-row"><span class="keys"><kbd>.</kbd></span><span>Pass</span></div>
+                <div class="control-row"><span class="keys"><kbd>,</kbd></span><span>Through pass</span></div>
+                <div class="control-row"><span class="keys"><kbd>/</kbd></span><span>Switch player</span></div>
+                <div class="control-row"><span class="keys"><kbd>\</kbd></span><span>Slide tackle</span></div>
+              </div>
+              <div class="help-card">
+                <h3>GAMEPAD · TOUCH</h3>
+                <p class="help-copy">Gamepads use A pass, B shoot, X through, Y switch, LB tackle, RB sprint. On phone or tablet, use the left stick and the action cluster on the right. Landscape is recommended.</p>
+                <p class="help-copy">The match pauses at half time. Use the pause menu for tactics, substitutions and settings.</p>
+              </div>
+              <div class="help-card accent">
+                <h3>THE RULES, ARCADE STYLE</h3>
+                <ul class="rules-list">
+                  <li>Eleven-a-side, two halves. Goals, throw-ins, corners and goal kicks are live.</li>
+                  <li>Offside is implemented and can be toggled in Settings. The HUD always shows it.</li>
+                  <li>Fouls can produce free kicks and penalties. Yellow cards are tracked.</li>
+                  <li>Three substitutions per match. Stamina drains while sprinting.</li>
+                  <li>No online play. Local multiplayer and AI are the complete offering.</li>
+                </ul>
+              </div>
+            </div>
+            <footer class="modal-footer"><span>TIP: THE ACTIVE PLAYER HAS A GLOWING RING.</span><button class="cta-button compact" id="helpDone" type="button">BACK TO MENU</button></footer>
+          </div>
+        </section>
+
+        <section id="settingsScreen" class="screen modal-screen" aria-label="Settings">
+          <div class="modal-shell settings-shell">
+            <header class="modal-header">
+              <div><p class="eyebrow">SYSTEM</p><h2>SETTINGS</h2></div>
+              <button class="close-button" data-close="settings" type="button" aria-label="Close">×</button>
+            </header>
+            <div class="settings-grid">
+              <div class="settings-block">
+                <h3>AUDIO</h3>
+                <label class="range-row"><span>MASTER VOLUME</span><strong id="volumeValue">70%</strong><input id="volumeRange" type="range" min="0" max="100" value="70" /></label>
+                <label class="range-row"><span>MUSIC</span><strong id="musicValue">25%</strong><input id="musicRange" type="range" min="0" max="100" value="25" /></label>
+                <label class="toggle-row"><span>Crowd ambience</span><input id="crowdToggle" type="checkbox" checked /><i></i></label>
+              </div>
+              <div class="settings-block">
+                <h3>MATCH DEFAULTS</h3>
+                <label class="select-row"><span>Difficulty</span><select id="settingsDifficulty"><option value="rookie">Rookie</option><option value="pro">Pro</option><option value="legend">Legend</option></select></label>
+                <label class="select-row"><span>Match length</span><select id="settingsLength"><option value="3">3 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select></label>
+                <label class="select-row"><span>P1 keyboard scheme</span><select id="settingsScheme"><option value="classic">Classic (Space / E / Q)</option><option value="alternate">Alternate (J / K / L)</option></select></label>
+              </div>
+              <div class="settings-block">
+                <h3>PRESENTATION</h3>
+                <label class="range-row"><span>CAMERA DISTANCE</span><strong id="cameraValue">100%</strong><input id="cameraRange" type="range" min="78" max="125" value="100" /></label>
+                <label class="toggle-row"><span>Screen shake</span><input id="shakeToggle" type="checkbox" checked /><i></i></label>
+                <label class="toggle-row"><span>Offside rule</span><input id="offsideToggle" type="checkbox" checked /><i></i></label>
+              </div>
+              <div class="settings-block">
+                <h3>DATA</h3>
+                <p class="help-copy">Settings and cup progress are stored locally on this device.</p>
+                <button class="danger-button" id="resetDataButton" type="button">RESET SAVED DATA</button>
+                <p class="settings-note" id="settingsNote">NOVA ELEVEN v1.0 · 3D arcade football</p>
+              </div>
+            </div>
+            <footer class="modal-footer"><span>CHANGES SAVE AUTOMATICALLY</span><button class="cta-button compact" id="settingsDone" type="button">DONE</button></footer>
+          </div>
+        </section>
+
+        <div id="matchIntro" class="screen match-intro" aria-label="Match introduction">
+          <div class="intro-inner">
+            <p class="eyebrow">NOVA STADIUM · NIGHT KICKOFF</p>
+            <div class="intro-teams">
+              <div class="intro-team"><span id="introHomeCrest" class="crest crest-xl">AUR</span><strong id="introHomeName">AURORA FC</strong><small id="introHomeCity">NORTHLIGHT</small></div>
+              <div class="intro-vs"><span>VS</span><small id="introLength">5 MIN</small></div>
+              <div class="intro-team"><span id="introAwayCrest" class="crest crest-xl">COM</span><strong id="introAwayName">CRIMSON COMETS</strong><small id="introAwayCity">RED MESA</small></div>
+            </div>
+            <div class="intro-rule"></div>
+            <p class="intro-hint" id="introHint">Hold shoot to power up · pass into space · use the active player ring</p>
+          </div>
+        </div>
+
+        <div id="gameHud" class="game-hud" aria-label="Match HUD">
+          <header class="scoreboard">
+            <div class="score-team home">
+              <span class="crest" id="hudHomeCrest">AUR</span>
+              <span class="score-name" id="hudHomeName">AURORA FC</span>
+              <strong id="hudHomeScore">0</strong>
+            </div>
+            <div class="score-clock">
+              <span id="hudHalf">1ST HALF</span>
+              <strong id="hudClock">00:00</strong>
+              <small id="hudMeta">OFFSIDE ON</small>
+            </div>
+            <div class="score-team away">
+              <strong id="hudAwayScore">0</strong>
+              <span class="score-name" id="hudAwayName">CRIMSON COMETS</span>
+              <span class="crest" id="hudAwayCrest">COM</span>
+            </div>
+          </header>
+          <div class="hud-top-actions">
+            <button id="pauseButton" class="pause-button" type="button" aria-label="Pause match"><span></span><span></span></button>
+          </div>
+          <div class="hud-left">
+            <div class="controlled-card">
+              <span class="jersey-number" id="hudPlayerNumber">9</span>
+              <div class="controlled-info">
+                <span class="micro-label">ACTIVE PLAYER</span>
+                <strong id="hudPlayerName">Nico Vale</strong>
+                <div class="stamina-track"><i id="hudStamina"></i></div>
+              </div>
+            </div>
+            <div class="possession-card">
+              <div><span id="possessionHome">50%</span><span>POSSESSION</span><span id="possessionAway">50%</span></div>
+              <div class="possession-bar"><i id="possessionFill"></i></div>
+            </div>
+            <div class="practice-card" id="practiceCard">
+              <span class="micro-label">PRACTICE SCORE</span>
+              <strong id="practiceScore">0</strong>
+              <span id="practiceGoals">0 GOALS</span>
+            </div>
+          </div>
+          <div class="hud-right">
+            <div class="radar-shell">
+              <canvas id="radar" width="160" height="206" aria-label="Team radar"></canvas>
+              <span class="radar-label">RADAR</span>
+            </div>
+            <div class="subs-left" id="hudSubsLeft">3 SUBS</div>
+          </div>
+          <div class="hud-bottom">
+            <div class="commentary" id="commentaryLine">The atmosphere is building under the lights.</div>
+            <div class="key-hints" id="keyHints">
+              <span><kbd>SPACE</kbd> SHOOT</span><span><kbd>E</kbd> PASS</span><span><kbd>Q</kbd> THROUGH</span><span><kbd>SHIFT</kbd> SPRINT</span><span><kbd>F</kbd> SWITCH</span>
+            </div>
+          </div>
+          <div class="power-meter" id="powerMeter">
+            <span>SHOT POWER</span>
+            <div><i id="powerFill"></i></div>
+          </div>
+          <div class="p2-indicator" id="p2Indicator">P2 ACTIVE</div>
+        </div>
+
+        <div id="goalOverlay" class="goal-overlay" aria-live="assertive">
+          <div class="goal-streak"></div>
+          <p id="goalKicker">GOAL</p>
+          <h2 id="goalScorer">NICO VALE</h2>
+          <span id="goalTeam">AURORA FC</span>
+          <em id="goalMinute">24'</em>
+        </div>
+
+        <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+        <div id="targetFlash" class="target-flash"></div>
+
+        <section id="pauseScreen" class="screen modal-screen pause-screen" aria-label="Pause menu">
+          <div class="modal-shell pause-shell">
+            <header class="modal-header">
+              <div><p class="eyebrow">MATCH CONTROL</p><h2>PAUSED</h2></div>
+              <span class="pause-score" id="pauseScore">0 — 0</span>
+            </header>
+            <div id="pauseMain" class="pause-main">
+              <button class="cta-button" id="resumeButton" type="button"><span>RESUME MATCH</span><small>BACK TO THE PITCH</small></button>
+              <div class="pause-grid">
+                <button class="pause-option" data-pause-panel="tactics" type="button"><strong>TACTICS</strong><small>Formation & mentality</small></button>
+                <button class="pause-option" data-pause-panel="subs" type="button"><strong>SUBSTITUTIONS</strong><small id="pauseSubsLabel">3 remaining</small></button>
+                <button class="pause-option" data-pause-panel="controls" type="button"><strong>CONTROLS</strong><small>Keyboard & gamepad</small></button>
+                <button class="pause-option" data-pause-panel="settings" type="button"><strong>SETTINGS</strong><small>Audio & presentation</small></button>
+              </div>
+              <button class="danger-button wide" id="quitMatchButton" type="button">END MATCH / QUIT</button>
+            </div>
+            <div id="tacticsPanel" class="pause-panel">
+              <button class="back-button inline" data-pause-back type="button">← BACK</button>
+              <h3>FORMATION</h3>
+              <div class="formation-grid" id="formationGrid"></div>
+              <h3>MENTALITY</h3>
+              <div class="segmented wide" id="mentalityOptions">
+                <button data-mentality="defensive" type="button">DEFENSIVE</button>
+                <button data-mentality="balanced" class="active" type="button">BALANCED</button>
+                <button data-mentality="attacking" type="button">ATTACKING</button>
+              </div>
+              <p class="help-copy" id="tacticsHint">Balanced keeps your lines connected and adapts to the ball.</p>
+            </div>
+            <div id="subsPanel" class="pause-panel">
+              <button class="back-button inline" data-pause-back type="button">← BACK</button>
+              <div class="subs-header"><h3>SUBSTITUTIONS</h3><span id="subsRemaining">3 REMAINING</span></div>
+              <div class="subs-grid">
+                <div><span class="micro-label">ON PITCH</span><div id="subsOutList" class="sub-list"></div></div>
+                <div><span class="micro-label">BENCH</span><div id="subsInList" class="sub-list"></div></div>
+              </div>
+              <button class="cta-button compact" id="confirmSubButton" type="button" disabled>SELECT A PLAYER AND A SUBSTITUTE</button>
+            </div>
+            <div id="controlsPanel" class="pause-panel">
+              <button class="back-button inline" data-pause-back type="button">← BACK</button>
+              <h3>CONTROLS</h3>
+              <div class="inline-controls">
+                <div><span>MOVE</span><strong>WASD / LEFT STICK</strong></div>
+                <div><span>SPRINT</span><strong>SHIFT / RB</strong></div>
+                <div><span>SHOOT</span><strong>SPACE (HOLD) / B</strong></div>
+                <div><span>PASS</span><strong>E / A</strong></div>
+                <div><span>THROUGH</span><strong>Q / X</strong></div>
+                <div><span>SWITCH</span><strong>F / Y</strong></div>
+                <div><span>TACKLE</span><strong>C / LB</strong></div>
+              </div>
+              <p class="help-copy">In Local 2P, Player 2 uses the arrow keys, Enter, period, comma, slash and backslash. Touch controls appear automatically on phones and tablets.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="halftimeScreen" class="screen modal-screen halftime-screen" aria-label="Half time">
+          <div class="modal-shell halftime-shell">
+            <p class="eyebrow">NOVA STADIUM</p>
+            <h2>HALF TIME</h2>
+            <div class="halftime-score"><span id="halftimeHome">AURORA</span><strong id="halftimeScore">0 — 0</strong><span id="halftimeAway">COMETS</span></div>
+            <div id="halftimeStats" class="stat-bars"></div>
+            <button class="cta-button" id="secondHalfButton" type="button"><span>START SECOND HALF</span><small>THE NIGHT IS YOUNG</small></button>
+          </div>
+        </section>
+
+        <section id="resultsScreen" class="screen modal-screen results-screen" aria-label="Match result">
+          <div class="modal-shell results-shell">
+            <p class="eyebrow" id="resultsEyebrow">FULL TIME</p>
+            <h2 id="resultsHeadline">MATCH RESULT</h2>
+            <div class="results-score">
+              <div><span class="crest" id="resultsHomeCrest">AUR</span><strong id="resultsHomeName">AURORA FC</strong></div>
+              <span id="resultsScore">0 — 0</span>
+              <div><span class="crest" id="resultsAwayCrest">COM</span><strong id="resultsAwayName">COMETS</strong></div>
+            </div>
+            <p id="resultsVerdict" class="results-verdict">A hard-fought night under the lights.</p>
+            <div class="results-columns">
+              <div><span class="micro-label">SCORERS</span><ul id="resultsScorers" class="scorer-list"></ul></div>
+              <div class="stat-bars compact" id="resultsStats"></div>
+            </div>
+            <div class="results-actions">
+              <button class="cta-button compact" id="rematchButton" type="button">REMATCH</button>
+              <button class="secondary-button" id="resultsMenuButton" type="button">MAIN MENU</button>
+              <button class="secondary-button accent" id="tournamentContinueButton" type="button">CONTINUE CUP</button>
+            </div>
+          </div>
+        </section>
+
+        <div id="touchControls" class="touch-controls" aria-label="Touch controls">
+          <div class="joystick" id="joystick">
+            <div class="joystick-knob" id="joystickKnob"></div>
+            <span>MOVE</span>
+          </div>
+          <div class="touch-actions">
+            <button class="touch-button small" data-action="switch" type="button">SWITCH</button>
+            <button class="touch-button small" data-action="sprint" type="button">SPRINT</button>
+            <button class="touch-button through" data-action="through" type="button">THRU</button>
+            <button class="touch-button pass" data-action="pass" type="button">PASS</button>
+            <button class="touch-button shoot" data-action="shoot" type="button">SHOOT</button>
+          </div>
+        </div>
+
+        <div id="rotateNotice" class="rotate-notice">
+          <span class="rotate-icon"></span>
+          <strong>ROTATE YOUR DEVICE</strong>
+          <p>NOVA ELEVEN plays best in landscape.</p>
+        </div>
+
+        <div id="fatalError" class="screen fatal-screen">
+          <h2>THE PITCH COULD NOT LOAD</h2>
+          <p>This device could not start the 3D renderer. Try a current browser with WebGL enabled.</p>
+          <button class="cta-button compact" onclick="location.reload()" type="button">TRY AGAIN</button>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

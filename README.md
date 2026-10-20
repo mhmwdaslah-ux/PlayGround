@@ -1,4 +1,8 @@
-# PlayGround
+# NOVA ELEVEN
+
+**THE BEAUTIFUL GAME. RE-ENERGIZED.**
+
+NOVA ELEVEN is an original, fully playable 3D arcade football game for desktop, tablet and phone. Pick one of eight fictional clubs, play quick matches, chase the Aurora Cup in a saved knockout tournament, or sharpen your finishing in practice. Everything runs locally in the browser with Three.js and WebGL.
 
 <!-- omgithub:readme:start -->
 ## 🚀 Build, play, and remix with OMGithub
@@ -16,3 +20,87 @@
 - 👤 [Explore the creator's projects](https://omgithub.com/mhmwdaslah-ux).
 - 🌍 [Create with OMGithub](https://omgithub.com).
 <!-- omgithub:readme:end -->
+
+## Play
+
+```bash
+npm install
+npm run dev
+```
+
+Open the printed local URL. For a production build:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Modes
+
+- **Quick Match** — choose your club, opponent, match length, difficulty and solo/local 2P, then kick off.
+- **Tournament** — an eight-club Aurora Cup knockout. Your progress is saved in local storage. Knockout draws are decided by a penalty shootout. You can return to the bracket after every result.
+- **Practice** — a solo finishing session with glowing target rings and a persistent best score.
+
+## Controls
+
+### Player 1 (classic)
+
+| Action | Key |
+| --- | --- |
+| Move | `W` `A` `S` `D` |
+| Sprint | `Shift` |
+| Shoot / tackle | `Space` (hold to charge a shot) |
+| Pass | `E` |
+| Through pass | `Q` |
+| Switch player | `F` |
+| Slide tackle | `C` |
+
+An alternate keyboard scheme (`J` / `K` / `L` / `U` / `H`) is available in Settings.
+
+### Local Player 2
+
+| Action | Key |
+| --- | --- |
+| Move | Arrow keys |
+| Sprint | `Right Shift` |
+| Shoot / tackle | `Enter` |
+| Pass | `.` |
+| Through pass | `,` |
+| Switch player | `/` |
+| Slide tackle | `\` |
+
+Gamepads use the left stick plus A/B/X/Y, LB/RB, and the shoulder buttons. On phones and tablets, use the left virtual stick and the action buttons on the right. Matches are designed for landscape on small devices; the menu works in portrait.
+
+Press `Escape` or `P` to pause. Pause for tactics, formations, mentality, substitutions, controls and settings. Audio, camera distance, screen shake, crowd, offside and saved data can be changed in Settings.
+
+## Features
+
+- Full 11-a-side match engine with two halves, kickoffs, goals, throw-ins, corners, goal kicks, free kicks, penalties, goalkeepers, saves, tackles, fouls, stamina, substitutions and offside.
+- Role-based team AI with pressing, passing, through balls, shooting, formations and mentalities.
+- Eight fictional clubs, generated squads, team crests and a neon night-stadium built procedurally.
+- Saved local profile, settings and Aurora Cup bracket.
+- Responsive HUD, touch controls, gamepad support, local 2P, pause/tactics/substitution screens, match intro, goal presentation and full-time statistics.
+
+## Tech
+
+- [Three.js](https://threejs.org/) for 3D rendering.
+- [Vite](https://vite.dev/) for development and production builds.
+- Web Audio for procedural crowd, music and sound effects.
+- Local storage for persistence. No backend and no account required.
+
+## Notes and limitations
+
+- This is an arcade football game, not a licensed simulation. All clubs and players are original and fictional.
+- There is no online multiplayer; the game is built for solo play, local 2P and AI opponents.
+- Offside is implemented and can be toggled in Settings.
+- Match speed is tuned for short arcade sessions rather than a full 90-minute simulation.
+- The game requires WebGL. A current Chrome, Edge, Firefox or Safari is recommended.
+
+## Verification
+
+```bash
+node --check src/main.js
+npm run build
+```
+
+Browser testing has been performed in Chromium with SwiftShader CPU rendering; the renderer is software-based in this environment, not hardware GPU accelerated.
