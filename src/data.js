@@ -117,68 +117,68 @@ export const FORMATIONS = {
     name: '4-3-3',
     shape: 'Balanced width',
     slots: [
-      { role: 'GK', x: 0, depth: 0.025 },
-      { role: 'DF', x: -0.82, depth: 0.19 },
-      { role: 'DF', x: -0.28, depth: 0.17 },
-      { role: 'DF', x: 0.28, depth: 0.17 },
-      { role: 'DF', x: 0.82, depth: 0.19 },
-      { role: 'MF', x: -0.58, depth: 0.39 },
-      { role: 'MF', x: 0, depth: 0.35 },
-      { role: 'MF', x: 0.58, depth: 0.39 },
-      { role: 'FW', x: -0.7, depth: 0.62 },
-      { role: 'FW', x: 0, depth: 0.67 },
-      { role: 'FW', x: 0.7, depth: 0.62 }
+      { role: 'GK', x: 0, depth: 0.025, positions: ['GK'] },
+      { role: 'DF', x: -0.82, depth: 0.19, positions: ['LB', 'CB'] },
+      { role: 'DF', x: -0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.82, depth: 0.19, positions: ['RB', 'CB'] },
+      { role: 'MF', x: -0.58, depth: 0.39, positions: ['CM', 'CDM'] },
+      { role: 'MF', x: 0, depth: 0.35, positions: ['CM', 'CDM', 'CAM'] },
+      { role: 'MF', x: 0.58, depth: 0.39, positions: ['CM', 'CDM'] },
+      { role: 'FW', x: -0.7, depth: 0.62, positions: ['LW'] },
+      { role: 'FW', x: 0, depth: 0.67, positions: ['ST'] },
+      { role: 'FW', x: 0.7, depth: 0.62, positions: ['RW'] }
     ]
   },
   '4-4-2': {
     name: '4-4-2',
     shape: 'Classic two banks',
     slots: [
-      { role: 'GK', x: 0, depth: 0.025 },
-      { role: 'DF', x: -0.82, depth: 0.19 },
-      { role: 'DF', x: -0.28, depth: 0.17 },
-      { role: 'DF', x: 0.28, depth: 0.17 },
-      { role: 'DF', x: 0.82, depth: 0.19 },
-      { role: 'MF', x: -0.82, depth: 0.4 },
-      { role: 'MF', x: -0.28, depth: 0.37 },
-      { role: 'MF', x: 0.28, depth: 0.37 },
-      { role: 'MF', x: 0.82, depth: 0.4 },
-      { role: 'FW', x: -0.35, depth: 0.64 },
-      { role: 'FW', x: 0.35, depth: 0.64 }
+      { role: 'GK', x: 0, depth: 0.025, positions: ['GK'] },
+      { role: 'DF', x: -0.82, depth: 0.19, positions: ['LB', 'CB'] },
+      { role: 'DF', x: -0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.82, depth: 0.19, positions: ['RB', 'CB'] },
+      { role: 'MF', x: -0.82, depth: 0.4, positions: ['LW', 'CM'] },
+      { role: 'MF', x: -0.28, depth: 0.37, positions: ['CM'] },
+      { role: 'MF', x: 0.28, depth: 0.37, positions: ['CM'] },
+      { role: 'MF', x: 0.82, depth: 0.4, positions: ['RW', 'CM'] },
+      { role: 'FW', x: -0.35, depth: 0.64, positions: ['ST'] },
+      { role: 'FW', x: 0.35, depth: 0.64, positions: ['ST'] }
     ]
   },
   '3-5-2': {
     name: '3-5-2',
     shape: 'Midfield overload',
     slots: [
-      { role: 'GK', x: 0, depth: 0.025 },
-      { role: 'DF', x: -0.54, depth: 0.17 },
-      { role: 'DF', x: 0, depth: 0.15 },
-      { role: 'DF', x: 0.54, depth: 0.17 },
-      { role: 'MF', x: -0.9, depth: 0.38 },
-      { role: 'MF', x: -0.42, depth: 0.37 },
-      { role: 'MF', x: 0, depth: 0.34 },
-      { role: 'MF', x: 0.42, depth: 0.37 },
-      { role: 'MF', x: 0.9, depth: 0.38 },
-      { role: 'FW', x: -0.34, depth: 0.65 },
-      { role: 'FW', x: 0.34, depth: 0.65 }
+      { role: 'GK', x: 0, depth: 0.025, positions: ['GK'] },
+      { role: 'DF', x: -0.54, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0, depth: 0.15, positions: ['CB'] },
+      { role: 'DF', x: 0.54, depth: 0.17, positions: ['CB'] },
+      { role: 'MF', x: -0.9, depth: 0.38, positions: ['LW', 'CM'] },
+      { role: 'MF', x: -0.42, depth: 0.37, positions: ['CM'] },
+      { role: 'MF', x: 0, depth: 0.34, positions: ['CM', 'CDM'] },
+      { role: 'MF', x: 0.42, depth: 0.37, positions: ['CM'] },
+      { role: 'MF', x: 0.9, depth: 0.38, positions: ['RW', 'CM'] },
+      { role: 'FW', x: -0.34, depth: 0.65, positions: ['ST'] },
+      { role: 'FW', x: 0.34, depth: 0.65, positions: ['ST'] }
     ]
   },
   '4-2-3-1': {
     name: '4-2-3-1',
     shape: 'Control the middle',
     slots: [
-      { role: 'GK', x: 0, depth: 0.025 },
-      { role: 'DF', x: -0.82, depth: 0.19 },
-      { role: 'DF', x: -0.28, depth: 0.17 },
-      { role: 'DF', x: 0.28, depth: 0.17 },
-      { role: 'DF', x: 0.82, depth: 0.19 },
-      { role: 'MF', x: -0.3, depth: 0.35 },
-      { role: 'MF', x: 0.3, depth: 0.35 },
-      { role: 'MF', x: -0.72, depth: 0.53 },
-      { role: 'MF', x: 0, depth: 0.52 },
-      { role: 'MF', x: 0.72, depth: 0.53 },
-      { role: 'FW', x: 0, depth: 0.69 }
+      { role: 'GK', x: 0, depth: 0.025, positions: ['GK'] },
+      { role: 'DF', x: -0.82, depth: 0.19, positions: ['LB', 'CB'] },
+      { role: 'DF', x: -0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.28, depth: 0.17, positions: ['CB'] },
+      { role: 'DF', x: 0.82, depth: 0.19, positions: ['RB', 'CB'] },
+      { role: 'MF', x: -0.3, depth: 0.35, positions: ['CDM', 'CM'] },
+      { role: 'MF', x: 0.3, depth: 0.35, positions: ['CDM', 'CM'] },
+      { role: 'MF', x: -0.72, depth: 0.53, positions: ['CAM', 'LW'] },
+      { role: 'MF', x: 0, depth: 0.52, positions: ['CAM'] },
+      { role: 'MF', x: 0.72, depth: 0.53, positions: ['CAM', 'RW'] },
+      { role: 'FW', x: 0, depth: 0.69, positions: ['ST'] }
     ]
   }
 }
@@ -256,6 +256,7 @@ const LAST_NAMES = [
 ]
 
 export const SKIN_TONES = ['#f1c7a5', '#dfaa7c', '#b97a51', '#8d5536', '#623a27', '#f5d7bd']
+export const BOOT_COLORS = ['#101418', '#f4f7f5', '#ff5b57', '#ffd166', '#31f2c5', '#bfc2ff']
 export const HAIR_COLORS = ['#16120f', '#2d1d13', '#5b3923', '#d9b26f', '#15181c', '#7a4a2c']
 export const BENCH_SIZE = 5
 export const MAX_SUBS = 3
@@ -264,8 +265,25 @@ export function getTeam(id) {
   return TEAMS.find((team) => team.id === id) || TEAMS[0]
 }
 
-export function createRoster(team, count = 16) {
+const BENCH_POSITIONS = ['GK', 'CB', 'LB', 'RB', 'CM', 'CM', 'ST', 'LW', 'RW', 'CB']
+const POSITION_RANGES = {
+  GK: { finishing: [24, 44], pace: [48, 68], stamina: [70, 88] },
+  CB: { finishing: [38, 58], pace: [58, 76], stamina: [76, 92] },
+  LB: { finishing: [48, 68], pace: [72, 88], stamina: [78, 92] },
+  RB: { finishing: [48, 68], pace: [72, 88], stamina: [78, 92] },
+  CDM: { finishing: [50, 68], pace: [58, 76], stamina: [78, 94] },
+  CM: { finishing: [60, 78], pace: [62, 80], stamina: [74, 92] },
+  CAM: { finishing: [68, 84], pace: [70, 86], stamina: [70, 88] },
+  LW: { finishing: [66, 84], pace: [78, 92], stamina: [70, 88] },
+  RW: { finishing: [66, 84], pace: [78, 92], stamina: [70, 88] },
+  ST: { finishing: [74, 90], pace: [72, 90], stamina: [70, 85] }
+}
+const BUILDS = ['lean', 'athletic', 'power', 'stocky', 'athletic', 'lean']
+
+export function createRoster(team, count = 16, formationId = team.formation) {
   const teamIndex = TEAMS.findIndex((item) => item.id === team.id)
+  const formation = FORMATIONS[formationId] || FORMATIONS['4-3-3']
+  const slotPositions = formation.slots.map((slot) => slot.positions?.[0] || slot.role)
   const roster = []
   const used = new Set()
   for (let i = 0; i < count; i += 1) {
@@ -279,18 +297,36 @@ export function createRoster(team, count = 16) {
       if (!used.has(`${first} ${last}`)) break
     }
     used.add(`${first} ${last}`)
-    roster.push({
+    const position = i < slotPositions.length ? slotPositions[i] : BENCH_POSITIONS[(i - slotPositions.length) % BENCH_POSITIONS.length]
+    const ranges = POSITION_RANGES[position] || POSITION_RANGES.CM
+    const profile = {
       name: `${first} ${last}`,
       initials: `${first[0]}${last[0]}`,
       number: i + 1,
+      position,
       skin: SKIN_TONES[(i + teamIndex) % SKIN_TONES.length],
       hair: HAIR_COLORS[(i * 3 + teamIndex) % HAIR_COLORS.length],
-      finishing: 58 + ((i * 17 + teamIndex * 7) % 30),
-      pace: 58 + ((i * 11 + teamIndex * 13) % 32),
-      stamina: 62 + ((i * 7 + teamIndex * 5) % 28)
-    })
+      finishing: ranges.finishing[0] + ((i * 17 + teamIndex * 7) % (ranges.finishing[1] - ranges.finishing[0] + 1)),
+      pace: ranges.pace[0] + ((i * 11 + teamIndex * 13) % (ranges.pace[1] - ranges.pace[0] + 1)),
+      stamina: ranges.stamina[0] + ((i * 7 + teamIndex * 5) % (ranges.stamina[1] - ranges.stamina[0] + 1)),
+      height: 1.72 + ((i * 13 + teamIndex * 3) % 27) / 100,
+      build: BUILDS[(i * 5 + teamIndex) % BUILDS.length],
+      beard: (i * 7 + teamIndex) % 5 === 0,
+      boot: BOOT_COLORS[(i * 3 + teamIndex) % BOOT_COLORS.length]
+    }
+    const attributes = playerAttributes(profile, roleForPosition(position), i)
+    profile.attributes = attributes
+    profile.overall = attributes.overall
+    roster.push(profile)
   }
   return roster
+}
+
+export function roleForPosition(position) {
+  if (position === 'GK') return 'GK'
+  if (['CB', 'LB', 'RB'].includes(position)) return 'DF'
+  if (['CM', 'CDM', 'CAM'].includes(position)) return 'MF'
+  return 'FW'
 }
 
 export function seedRng(seed) {
@@ -299,4 +335,53 @@ export function seedRng(seed) {
     state = (state * 1664525 + 1013904223) >>> 0
     return state / 4294967296
   }
+}
+
+const ATTR_PROFILES = {
+  GK: { pac: 0.4, sho: 0.2, pas: 0.6, dri: 0.3, def: 0.9, phy: 0.7 },
+  DF: { pac: 0.6, sho: 0.3, pas: 0.55, dri: 0.45, def: 0.85, phy: 0.8 },
+  MF: { pac: 0.65, sho: 0.7, pas: 0.85, dri: 0.75, def: 0.6, phy: 0.7 },
+  FW: { pac: 0.85, sho: 0.85, pas: 0.65, dri: 0.85, def: 0.3, phy: 0.65 }
+}
+
+export function playerAttributes(profile, role = 'MF', seed = 0) {
+  const weights = ATTR_PROFILES[role] || ATTR_PROFILES.MF
+  const isKeeper = profile.position === 'GK'
+  const base = isKeeper
+    ? Math.round((profile.stamina + profile.pace) / 2 + 10)
+    : Math.round((profile.finishing + profile.pace + profile.stamina) / 3)
+  const rand = (n) => {
+    const value = Math.sin((seed + 1) * 12.9898 + n * 78.233) * 43758.5453
+    return value - Math.floor(value)
+  }
+  const clampAttr = (value) => Math.max(24, Math.min(99, Math.round(value)))
+  const attributes = {
+    pac: clampAttr(base + (weights.pac - 0.6) * 32 + (rand(1) - 0.5) * 12),
+    sho: clampAttr(profile.finishing + (weights.sho - 0.6) * 30 + (rand(2) - 0.5) * 12),
+    pas: clampAttr(base + (weights.pas - 0.6) * 32 + (rand(3) - 0.5) * 12),
+    dri: clampAttr(base + (weights.dri - 0.6) * 32 + (rand(4) - 0.5) * 12),
+    def: clampAttr(base + (weights.def - 0.6) * 34 + (rand(5) - 0.5) * 12),
+    phy: clampAttr(profile.stamina + (weights.phy - 0.6) * 30 + (rand(6) - 0.5) * 12)
+  }
+  const overallWeights = OVERALL_BY_POSITION[profile.position] || OVERALL_BY_POSITION.MF
+  let overall = 0
+  let weightSum = 0
+  for (const [key, weight] of Object.entries(overallWeights)) {
+    overall += attributes[key] * weight
+    weightSum += weight
+  }
+  return { ...attributes, overall: Math.round(overall / weightSum) }
+}
+
+const OVERALL_BY_POSITION = {
+  GK: { pac: 0.05, sho: 0.02, pas: 0.2, dri: 0.05, def: 0.45, phy: 0.23 },
+  CB: { pac: 0.14, sho: 0.03, pas: 0.1, dri: 0.06, def: 0.48, phy: 0.19 },
+  LB: { pac: 0.26, sho: 0.06, pas: 0.18, dri: 0.16, def: 0.24, phy: 0.1 },
+  RB: { pac: 0.26, sho: 0.06, pas: 0.18, dri: 0.16, def: 0.24, phy: 0.1 },
+  CDM: { pac: 0.1, sho: 0.1, pas: 0.3, dri: 0.16, def: 0.24, phy: 0.1 },
+  CM: { pac: 0.12, sho: 0.18, pas: 0.3, dri: 0.22, def: 0.1, phy: 0.08 },
+  CAM: { pac: 0.16, sho: 0.28, pas: 0.24, dri: 0.24, def: 0.03, phy: 0.05 },
+  LW: { pac: 0.28, sho: 0.24, pas: 0.18, dri: 0.24, def: 0.02, phy: 0.04 },
+  RW: { pac: 0.28, sho: 0.24, pas: 0.18, dri: 0.24, def: 0.02, phy: 0.04 },
+  ST: { pac: 0.2, sho: 0.42, pas: 0.1, dri: 0.16, def: 0.02, phy: 0.1 }
 }

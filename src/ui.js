@@ -5,8 +5,12 @@ import {
   MATCH_LENGTHS,
   MENTALITIES,
   TEAMS,
-  getTeam
+  createRoster,
+  getTeam,
+  playerAttributes
 } from './data.js'
+import { CRATES, DIVISIONS, RARITIES, rankProgress } from './progression.js'
+import { KIT_PALETTES, PLAYER_POOL, PLAYER_BY_ID, buildLineup, effectiveOverall, kitPalette, positionPenalty, squadLineup, squadPlayers, squadRating } from './squad.js'
 import { ROUND_NAMES, cupRoundLabel, getUserMatch, userOpponent } from './tournament.js'
 
 const $ = (id) => document.getElementById(id)
@@ -16,6 +20,7 @@ const BASE_SCREENS = [
   'mainMenu',
   'quickSetup',
   'tournamentScreen',
+  'careerScreen',
   'resultsScreen',
   'fatalError'
 ]
@@ -78,7 +83,11 @@ export class UIController {
     this.tournamentLength = this.settings.matchLength
     this.tournamentDifficulty = this.settings.difficulty
     this.tournament = null
-    this.profile = { matches: 0, wins: 0, goals: 0, bestPractice: 0 }
+    this.profile = { matches: 0, wins: 0, goals: 0, bestPractice: 0, xp: 0, coins: 0, keys: 0, playerStats: {}, crateHistory: [] }
+    this.squad = null
+    this.careerTab = 'rank'
+    this.selectedSlot = 0
+    this.statsClubId = 'aurora'
     this.lastSnapshot = null
     this.settingsReturn = 'mainMenu'
     this.subOptions = null
@@ -189,6 +198,11 @@ export class UIController {
     if (record) {
       record.textContent = `${this.profile.wins || 0} WINS · ${this.profile.goals || 0} GOALS`
       $('profileBest').textContent = `PRACTICE BEST ${this.profile.bestPractice || 0}`
+      const rank = $('profileRank')
+      if (rank) {
+        const progress = rankProgress(this.profile)
+        rank.textContent = `${progress.division.name.toUpperCase()} · LEVEL ${progress.level} · ${progress.coins} COINS`
+      }
     }
     const subtitle = $('tournamentSubtitle')
     if (subtitle) {
@@ -222,6 +236,7 @@ export class UIController {
 
     $('menuHelpButton')?.addEventListener('click', () => this.openHelp())
     $('menuSettingsButton')?.addEventListener('click', () => this.openSettings('mainMenu'))
+    $('careerButton')?.addEventListener('click', () => this.actions.onShowCareer?.())
     $('helpDone')?.addEventListener('click', () => this.closeHelp())
     document.querySelectorAll('[data-close="help"]').forEach((button) => button.addEventListener('click', () => this.closeHelp()))
     document.querySelectorAll('[data-close="settings"]').forEach((button) => button.addEventListener('click', () => this.closeSettings()))
@@ -461,6 +476,91 @@ export class UIController {
       this.actions.onSettingsChanged?.({ ...this.settings })
       this.showToast({ title: 'DATA RESET', detail: 'Settings, cup and profile cleared.', tone: 'info' })
     })
+
+    $('careerTabs')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-career-tab]')
+      if (!button) return
+      this.careerTab = button.dataset.careerTab
+      this.renderCareer()
+      this.actions.onUiSound?.('click')
+    })
+
+    $('crateGrid')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-open-crate]')
+      if (!button) return
+      const reward = this.actions.onOpenCrate?.(button.dataset.openCrate)
+      if (reward) {
+        this.showCrateReward(reward)
+        this.renderCratePanel()
+        this.renderCareer()
+      }
+      this.actions.onUiSound?.('select')
+    })
+
+    $('squadSlots')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-slot]')
+      if (!button) return
+      this.selectedSlot = Number(button.dataset.slot)
+      this.renderSquadPanel()
+      this.actions.onUiSound?.('click')
+    })
+
+    $('playerPool')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-pool-player]')
+      if (!button || !this.squad) return
+      const player = PLAYER_BY_ID.get(button.dataset.poolPlayer)
+      if (!player) return
+      const lineup = [...(this.squad.lineup || [])]
+      const slotIndex = Math.min(this.selectedSlot, lineup.length - 1)
+      const previous = lineup[slotIndex]
+      lineup[slotIndex] = player.id
+      const bench = [...(this.squad.bench || [])]
+      if (previous && previous !== player.id && !bench.includes(previous)) {
+        bench.unshift(previous)
+        bench.length = 5
+      }
+      this.actions.onSquadUpdate?.({ lineup, bench })
+      this.squad = { ...this.squad, lineup, bench }
+      this.renderSquadPanel()
+      this.actions.onUiSound?.('select')
+    })
+
+    $('squadFormations')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-squad-formation]')
+      if (!button || !this.squad) return
+      const formationId = button.dataset.squadFormation
+      const current = squadLineup(this.squad).filter(Boolean)
+      const extras = squadPlayers(this.squad).filter((player) => !current.some((entry) => entry.id === player.id))
+      const players = [...current, ...extras]
+      const assigned = buildLineup(players, formationId)
+      const lineup = assigned.map((player) => player?.id || null)
+      while (lineup.length < 11) lineup.push(null)
+      this.actions.onSquadUpdate?.({ formation: formationId, lineup })
+      this.squad = { ...this.squad, formation: formationId, lineup }
+      this.renderSquadPanel()
+      this.actions.onUiSound?.('click')
+    })
+
+    $('kitPicker')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-kit]')
+      if (!button || !this.squad) return
+      this.actions.onSquadUpdate?.({ kit: button.dataset.kit })
+      this.squad = { ...this.squad, kit: button.dataset.kit }
+      this.renderSquadPanel()
+      this.actions.onUiSound?.('select')
+    })
+
+    $('squadNameInput')?.addEventListener('input', (event) => {
+      const value = event.target.value.toUpperCase().slice(0, 18)
+      event.target.value = value
+      this.actions.onSquadUpdate?.({ teamName: value || 'MY CLUB' })
+    })
+
+    $('statsClubSelect')?.addEventListener('change', (event) => {
+      this.statsClubId = event.target.value
+      this.renderStatsPanel()
+      this.actions.onUiSound?.('click')
+    })
   }
 
   syncSettingsControls() {
@@ -492,10 +592,27 @@ export class UIController {
       : '<span><kbd>SPACE</kbd> SHOOT</span><span><kbd>E</kbd> PASS</span><span><kbd>Q</kbd> THROUGH</span><span><kbd>SHIFT</kbd> SPRINT</span><span><kbd>F</kbd> SWITCH</span>'
   }
 
+  selectableTeams() {
+    if (!this.squad) return TEAMS
+    const custom = {
+      id: 'myclub',
+      name: this.squad.teamName || 'MY CLUB',
+      city: 'Your Club',
+      short: 'MYC',
+      primary: kitPalette(this.squad.kit).primary,
+      secondary: kitPalette(this.squad.kit).secondary,
+      accent: kitPalette(this.squad.kit).accent,
+      rating: squadRating(this.squad),
+      formation: this.squad.formation || '4-3-3',
+      style: 'Your XI'
+    }
+    return [custom, ...TEAMS]
+  }
+
   renderQuickTeams() {
     const grid = $('quickTeamGrid')
     if (!grid) return
-    grid.innerHTML = TEAMS.map((team) => `
+    grid.innerHTML = this.selectableTeams().map((team) => `
       <button class="team-card ${team.id === this.selectedTeamId ? 'selected' : ''}" data-team="${team.id}" style="--team-color:${team.primary}" role="option" aria-selected="${team.id === this.selectedTeamId}" type="button">
         <span class="select-mark"></span>
         <span class="crest" style="${crestStyle(team)}">${team.short}</span>
@@ -527,7 +644,8 @@ export class UIController {
   }
 
   updateQuickSummary() {
-    const home = getTeam(this.selectedTeamId)
+    const teams = this.selectableTeams()
+    const home = teams.find((team) => team.id === this.selectedTeamId) || teams[0]
     const away = getTeam(this.selectedOpponentId)
     if ($('selectedTeamLabel')) $('selectedTeamLabel').textContent = home.name.toUpperCase()
     if ($('homeMiniName')) $('homeMiniName').textContent = home.name.toUpperCase()
@@ -685,8 +803,8 @@ export class UIController {
   }
 
   showMatchIntro(config) {
-    const home = getTeam(config.homeId)
-    const away = getTeam(config.awayId)
+    const home = config.homeTeam || getTeam(config.homeId)
+    const away = config.awayTeam || getTeam(config.awayId)
     $('introHomeCrest').textContent = home.short
     $('introHomeCrest').style.cssText = crestStyle(home)
     $('introHomeName').textContent = home.name.toUpperCase()
@@ -744,7 +862,9 @@ export class UIController {
     const difficultyName = DIFFICULTIES[snapshot.difficulty || this.settings.difficulty]?.name || 'PRO'
     $('hudMeta').textContent = snapshot.practice
       ? 'TARGET TRAINING'
-      : `${this.settings.offside ? 'OFFSIDE ON' : 'OFFSIDE OFF'} · ${difficultyName.toUpperCase()}`
+      : snapshot.kickoff
+        ? `KICK OFF · ${snapshot.kickoff.seconds}s`
+        : `${this.settings.offside ? 'OFFSIDE ON' : 'OFFSIDE OFF'} · ${difficultyName.toUpperCase()}`
     if (snapshot.controlled) {
       $('hudPlayerNumber').textContent = snapshot.controlled.number
       $('hudPlayerName').textContent = snapshot.controlled.name
@@ -920,6 +1040,33 @@ export class UIController {
     })
     const hint = $('tacticsHint')
     if (hint) hint.textContent = MENTALITIES[snapshot.mentality]?.label || 'Adapt to the match.'
+    this.renderShape(snapshot)
+  }
+
+  renderShape(snapshot) {
+    const pitch = $('shapePitch')
+    if (!pitch) return
+    const lineup = snapshot.lineup || []
+    if (!lineup.length) {
+      pitch.innerHTML = '<p class="help-copy">No lineup data yet.</p>'
+      return
+    }
+    pitch.innerHTML = `
+      <div class="shape-lines"></div>
+      ${lineup.map((player) => {
+        const left = 50 + player.slotX * 34
+        const top = 92 - player.slotDepth * 78
+        const out = player.position !== player.natural
+        return `
+          <div class="shape-player ${out ? 'out-of-position' : ''}" style="left:${left}%;top:${top}%">
+            <span class="shape-number">${player.number}</span>
+            <span class="shape-pos">${player.position}</span>
+            <span class="shape-name">${player.name.split(' ').slice(-1)[0]}</span>
+            <span class="shape-rating">${player.rating}</span>
+          </div>
+        `
+      }).join('')}
+    `
   }
 
   refreshSubs() {
@@ -976,6 +1123,239 @@ export class UIController {
     $('halftimeScore').textContent = `${snapshot.score[0]} — ${snapshot.score[1]}`
     $('halftimeStats').innerHTML = statsMarkup(snapshot.stats)
     $('halftimeScreen').classList.add('active')
+  }
+
+  setSquad(squad) {
+    this.squad = squad
+    if ($('careerScreen')?.classList.contains('active')) this.renderCareer()
+  }
+
+  showCareer() {
+    this.setBaseScreen('careerScreen')
+    this.careerTab = 'rank'
+    this.renderCareer()
+  }
+
+  renderCareer() {
+    const progress = rankProgress(this.profile)
+    if ($('careerCoins')) $('careerCoins').textContent = progress.coins
+    if ($('careerKeys')) $('careerKeys').textContent = progress.keys
+    const headings = { rank: 'RANK & REWARDS', crates: 'CRATE ROOM', squad: 'MY CLUB', stats: 'PLAYER STATS' }
+    if ($('careerHeading')) $('careerHeading').textContent = headings[this.careerTab] || 'CAREER'
+    document.querySelectorAll('[data-career-tab]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.careerTab === this.careerTab)
+    })
+    document.querySelectorAll('[data-career-panel]').forEach((panel) => {
+      panel.classList.toggle('active', panel.dataset.careerPanel === this.careerTab)
+    })
+    if (this.careerTab === 'rank') this.renderRankPanel()
+    else if (this.careerTab === 'crates') this.renderCratePanel()
+    else if (this.careerTab === 'squad') this.renderSquadPanel()
+    else this.renderStatsPanel()
+  }
+
+  renderRankPanel() {
+    const progress = rankProgress(this.profile)
+    const card = $('rankCard')
+    if (card) {
+      card.innerHTML = `
+        <p class="eyebrow">CURRENT DIVISION</p>
+        <h3 class="rank-division" style="--rank:${progress.division.color}">${progress.division.name}</h3>
+        <p class="rank-level">LEVEL ${progress.level}</p>
+        <div class="rank-bar"><i style="width:${progress.pct}%; --rank:${progress.division.color}"></i></div>
+        <p class="rank-xp">${progress.xpIntoLevel} / ${progress.xpNeeded === Infinity ? 'MAX' : progress.xpNeeded} XP</p>
+        <p class="rank-next">${progress.next
+          ? `Next: <strong>${progress.next.name}</strong> at level ${progress.next.minLevel} · ${progress.next.reward} coins`
+          : 'Top division reached. You are an Icon.'}</p>
+        <div class="rank-records">
+          <span><b>${this.profile.matches || 0}</b> matches</span>
+          <span><b>${this.profile.wins || 0}</b> wins</span>
+          <span><b>${this.profile.draws || 0}</b> draws</span>
+          <span><b>${this.profile.losses || 0}</b> losses</span>
+          <span><b>${this.profile.goals || 0}</b> goals</span>
+          <span><b>${this.profile.bestPractice || 0}</b> practice</span>
+        </div>
+      `
+    }
+    const track = $('rewardTrack')
+    if (track) {
+      track.innerHTML = DIVISIONS.map((division) => {
+        const reached = progress.level >= division.minLevel
+        return `
+          <div class="reward-step ${reached ? 'reached' : ''}" style="--rank:${division.color}">
+            <span class="reward-tier">TIER ${division.tier}</span>
+            <strong>${division.name}</strong>
+            <small>LV ${division.minLevel}+ · ${division.reward} coins${division.keys ? ` · ${division.keys} key` : ''}</small>
+          </div>
+        `
+      }).join('')
+    }
+  }
+
+  renderCratePanel() {
+    const grid = $('crateGrid')
+    if (grid) {
+      grid.innerHTML = CRATES.map((crate) => `
+        <article class="crate-card" style="--crate:${crate.color}">
+          <span class="crate-icon">${crate.icon}</span>
+          <h3>${crate.name}</h3>
+          <p>${crate.subtitle}</p>
+          <div class="crate-cost">
+            <span>${crate.cost} COINS</span>
+            ${crate.keyCost ? `<span>${crate.keyCost} KEY</span>` : ''}
+          </div>
+          <button class="cta-button compact" data-open-crate="${crate.id}" type="button">OPEN</button>
+        </article>
+      `).join('')
+    }
+    const history = $('crateHistory')
+    if (history) {
+      const entries = this.profile.crateHistory || []
+      history.innerHTML = entries.length
+        ? `<h3>RECENT DROPS</h3>${entries.map((entry) => `
+          <div class="crate-entry" style="--rarity:${RARITIES[entry.rarity]?.color || '#9fb4c7'}">
+            <strong>${entry.name}</strong><span>${RARITIES[entry.rarity]?.name || entry.rarity}</span>
+          </div>`).join('')}`
+        : '<p class="career-note">No drops yet. Open a crate to start the collection.</p>'
+    }
+  }
+
+  showCrateReward(reward) {
+    const reveal = $('crateReveal')
+    if (!reveal || !reward) return
+    const color = RARITIES[reward.rarity]?.color || '#31f2c5'
+    reveal.classList.remove('reveal-pop')
+    void reveal.offsetWidth
+    reveal.style.setProperty('--rarity', color)
+    reveal.classList.add('reveal-pop')
+    if ($('crateRevealTitle')) $('crateRevealTitle').textContent = reward.title
+    if ($('crateRevealDetail')) $('crateRevealDetail').textContent = reward.detail
+  }
+
+  renderSquadPanel() {
+    const squad = this.squad
+    if (!squad) return
+    const formation = FORMATIONS[squad.formation] || FORMATIONS['4-3-3']
+    const nameInput = $('squadNameInput')
+    if (nameInput && document.activeElement !== nameInput) nameInput.value = squad.teamName || 'MY CLUB'
+    const rating = squadRating(squad)
+    if ($('squadRating')) $('squadRating').textContent = rating
+    const slots = $('squadSlots')
+    if (slots) {
+      const lineup = squadLineup(squad)
+      slots.innerHTML = formation.slots.map((slot, index) => {
+        const player = lineup[index]
+        const effective = player ? effectiveOverall(player, slot) : 0
+        const out = player && positionPenalty(player, slot) > 0
+        return `
+          <button class="squad-slot ${this.selectedSlot === index ? 'selected' : ''} ${out ? 'out-of-position' : ''}" data-slot="${index}" type="button">
+            <span class="slot-role">${slot.positions?.join('/') || slot.role}</span>
+            <strong>${player ? player.name : 'EMPTY'}</strong>
+            <small>${player ? `${player.position} · ${effective} OVR${out ? ' · OUT OF POSITION' : ''}` : 'Pick a player'}</small>
+          </button>
+        `
+      }).join('')
+    }
+    const formations = $('squadFormations')
+    if (formations) {
+      formations.innerHTML = Object.entries(FORMATIONS).map(([id, entry]) => `
+        <button class="formation-button ${squad.formation === id ? 'active' : ''}" data-squad-formation="${id}" type="button">
+          <strong>${id}</strong>${entry.shape}
+        </button>
+      `).join('')
+    }
+    const kits = $('kitPicker')
+    if (kits) {
+      kits.innerHTML = KIT_PALETTES.map((kit) => `
+        <button class="kit-swatch ${squad.kit === kit.id ? 'active' : ''}" data-kit="${kit.id}" type="button"
+          style="--c1:${kit.primary};--c2:${kit.secondary}" aria-label="Kit ${kit.id}"></button>
+      `).join('')
+    }
+    const pool = $('playerPool')
+    if (pool) {
+      const unlocked = PLAYER_POOL.filter((player) => (squad.unlocked || []).includes(player.id))
+      const formation = FORMATIONS[squad.formation] || FORMATIONS['4-3-3']
+      const slot = formation.slots[Math.min(this.selectedSlot, formation.slots.length - 1)]
+      pool.innerHTML = unlocked.map((player) => {
+        const penalty = positionPenalty(player, slot)
+        const effective = effectiveOverall(player, slot)
+        return `
+          <button class="pool-player" data-pool-player="${player.id}" type="button" style="--rarity:${RARITIES[player.rarity]?.color || '#9fb4c7'}">
+            <span class="pool-ovr">${effective}</span>
+            <span class="pool-name">${player.name}</span>
+            <span class="pool-pos">${player.position}${penalty ? ` · -${penalty}` : ''}</span>
+            <span class="pool-attrs">PAC ${player.attributes.pac} · SHO ${player.attributes.sho} · PAS ${player.attributes.pas} · DRI ${player.attributes.dri} · DEF ${player.attributes.def} · PHY ${player.attributes.phy}</span>
+          </button>
+        `
+      }).join('')
+    }
+  }
+
+  renderStatsPanel() {
+    const select = $('statsClubSelect')
+    if (select) {
+      const options = [{ id: 'myclub', name: 'MY CLUB' }, ...TEAMS.map((team) => ({ id: team.id, name: team.name }))]
+      if (!options.some((option) => option.id === this.statsClubId)) this.statsClubId = 'aurora'
+      select.innerHTML = options.map((option) => `
+        <option value="${option.id}" ${option.id === this.statsClubId ? 'selected' : ''}>${option.name}</option>
+      `).join('')
+    }
+    const table = $('statTable')
+    if (!table) return
+    const stats = this.profile.playerStats || {}
+    let rows = []
+    let title = ''
+    if (this.statsClubId === 'myclub') {
+      title = 'MY CLUB'
+      rows = squadLineup(this.squad || {}).map((player) => ({
+        key: `myclub-${player.id}`,
+        name: player.name,
+        position: player.position,
+        attributes: player.attributes,
+        overall: player.overall
+      }))
+    } else {
+      const team = getTeam(this.statsClubId)
+      title = team.name
+      const roster = createRoster(team, 11)
+      const formation = FORMATIONS[team.formation] || FORMATIONS['4-3-3']
+      rows = roster.map((profile, index) => {
+        const slot = formation.slots[index]
+        const attributes = playerAttributes(profile, slot?.role || 'MF', index)
+        return {
+          key: `${team.id}-${index}`,
+          name: profile.name,
+          position: slot?.positions?.[0] || slot?.role || 'MF',
+          attributes,
+          overall: attributes.overall
+        }
+      })
+    }
+    table.innerHTML = `
+      <div class="stat-table-head">
+        <span>PLAYER</span><span>POS</span><span>OVR</span><span>PAC</span><span>SHO</span><span>PAS</span><span>DRI</span><span>DEF</span><span>PHY</span><span>APPS</span><span>G</span><span>A</span>
+      </div>
+      ${rows.map((row) => {
+        const entry = stats[row.key] || { apps: 0, goals: 0, assists: 0 }
+        return `
+          <div class="stat-table-row">
+            <span class="row-name">${row.name}</span>
+            <span>${row.position}</span>
+            <span class="row-ovr">${row.overall}</span>
+            <span>${row.attributes.pac}</span>
+            <span>${row.attributes.sho}</span>
+            <span>${row.attributes.pas}</span>
+            <span>${row.attributes.dri}</span>
+            <span>${row.attributes.def}</span>
+            <span>${row.attributes.phy}</span>
+            <span>${entry.apps}</span>
+            <span>${entry.goals}</span>
+            <span>${entry.assists}</span>
+          </div>
+        `
+      }).join('')}
+      <p class="career-note">Season stats for ${title}. Attributes are generated per player and improve with attribute boosts from crates.</p>
+    `
   }
 
   hideHalftime() {
@@ -1056,6 +1436,22 @@ export class UIController {
         : '<li><span>No goals recorded.</span><em>—</em></li>'
     }
     $('resultsStats').innerHTML = statsMarkup(snapshot.stats, true)
+    const rewardsBox = $('resultsRewards')
+    if (rewardsBox) {
+      const rewards = payload.rewards
+      if (rewards && (rewards.xp || rewards.coins || rewards.keys)) {
+        const progress = rankProgress(this.profile)
+        rewardsBox.innerHTML = `
+          <span class="reward-pill xp">+${rewards.xp} XP</span>
+          <span class="reward-pill coins">+${rewards.coins} COINS</span>
+          ${rewards.keys ? `<span class="reward-pill keys">+${rewards.keys} KEY</span>` : ''}
+          <span class="reward-pill rank" style="--rank:${progress.division.color}">${progress.division.name} · LV ${progress.level}</span>
+          ${rewards.levelUp ? `<span class="reward-pill level">LEVEL UP! +${rewards.levelUp} REWARD</span>` : ''}
+        `
+      } else {
+        rewardsBox.innerHTML = ''
+      }
+    }
     const cupButton = $('tournamentContinueButton')
     if (cupButton) {
       cupButton.style.display = payload.canContinueCup ? '' : 'none'

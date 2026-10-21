@@ -440,8 +440,8 @@ function createGoal(scene, side) {
 
 function createBall(scene) {
   const texture = makeBallTexture()
-  const ballMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.42, metalness: 0.03, emissive: '#102a2a', emissiveIntensity: 0.16 })
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 18), ballMaterial)
+  const ballMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.38, metalness: 0.02, emissive: '#5effd7', emissiveIntensity: 0.18 })
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.355, 24, 18), ballMaterial)
   mesh.position.set(0, 0.34, 0)
   scene.add(mesh)
   const trailMaterial = new THREE.MeshBasicMaterial({ color: '#54ffd4', transparent: true, opacity: 0.13, depthWrite: false })
@@ -463,95 +463,310 @@ function createBall(scene) {
   return { mesh, trail, shadow, material: ballMaterial }
 }
 
+function drawNumber(canvas, profile, team, isGK) {
+  const ctx = canvas.getContext('2d')
+  ctx.clearRect(0, 0, 128, 128)
+  ctx.fillStyle = isGK ? '#172a2e' : team.secondary
+  ctx.beginPath()
+  ctx.roundRect(8, 20, 112, 88, 16)
+  ctx.fill()
+  ctx.strokeStyle = isGK ? '#172a2e' : team.accent
+  ctx.lineWidth = 3
+  ctx.stroke()
+  ctx.fillStyle = isGK ? '#f4ff69' : '#f7fff9'
+  ctx.font = '900 70px Arial, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(String(profile.number), 64, 66)
+}
+
+function makeNumberTexture(profile, team, isGK) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+  drawNumber(canvas, profile, team, isGK)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  return texture
+}
+
 export function createPlayerModel(team, profile, isGK = false) {
   const group = new THREE.Group()
   const rig = new THREE.Group()
   group.add(rig)
+  // Height and build give every player his own silhouette.
+  const height = profile.height || 1.82
+  const buildType = profile.build || 'athletic'
+  const buildFactor = { lean: 0.9, athletic: 1, power: 1.14, stocky: 1.2 }[buildType] || 1
+  const heightFactor = 0.92 + (height - 1.7) * 0.62
+  const groupScale = 1.14 * heightFactor
+  group.scale.set(groupScale * (2 - buildFactor), groupScale, groupScale * (2 - buildFactor) * 0.5 + buildFactor * 0.5)
 
-  const shirt = isGK ? '#f4ff69' : team.primary
-  const shorts = isGK ? '#172a2e' : team.secondary
-  const socks = isGK ? '#f4ff69' : team.primary
-  const sleeve = isGK ? '#c9ff54' : team.accent
+  const shirt = isGK ? '#e9ff67' : team.primary
+  const shorts = isGK ? '#14262b' : team.secondary
+  const socks = isGK ? '#e9ff67' : team.primary
+  const sleeve = isGK ? '#b6d948' : team.accent
   const skin = material(profile.skin, { roughness: 0.82 })
   const hair = material(profile.hair, { roughness: 0.95 })
-  const shirtMaterial = material(shirt, { roughness: 0.8 })
-  const shortsMaterial = material(shorts, { roughness: 0.82 })
-  const sockMaterial = material(socks, { roughness: 0.85 })
-  const sleeveMaterial = material(sleeve, { roughness: 0.8 })
-  const bootMaterial = material('#07121a', { roughness: 0.5 })
+  const shirtMaterial = material(shirt, { roughness: 0.72, emissive: shirt, emissiveIntensity: 0.1 })
+  const shortsMaterial = material(shorts, { roughness: 0.8, emissive: shorts, emissiveIntensity: 0.06 })
+  const sockMaterial = material(socks, { roughness: 0.82, emissive: socks, emissiveIntensity: 0.08 })
+  const sleeveMaterial = material(sleeve, { roughness: 0.76, emissive: sleeve, emissiveIntensity: 0.07 })
+  const bootMaterial = material(profile.boot || '#07121a', { roughness: 0.42, metalness: 0.18 })
+  const soleMaterial = material('#d9fff3', { roughness: 0.55 })
+  const trimMaterial = material(isGK ? '#14262b' : team.accent, { roughness: 0.68 })
 
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.58, 20),
-    new THREE.MeshBasicMaterial({ color: '#00110b', transparent: true, opacity: 0.34, depthWrite: false })
+    new THREE.CircleGeometry(0.64, 22),
+    new THREE.MeshBasicMaterial({ color: '#00110b', transparent: true, opacity: 0.4, depthWrite: false })
   )
   shadow.rotation.x = -Math.PI / 2
-  shadow.scale.y = 0.58
-  shadow.position.y = 0.015
+  shadow.scale.y = 0.62
+  shadow.position.y = 0.012
   group.add(shadow)
 
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.31, 0.56, 5, 10), shirtMaterial)
-  torso.position.y = 1.32
-  torso.scale.x = 1.12
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.5, 6, 14), shirtMaterial)
+  torso.position.y = 1.43
+  torso.scale.set(1.1 * buildFactor, 1, 0.9 * (0.94 + buildFactor * 0.06))
   rig.add(torso)
 
-  const chestStripe = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.52, 0.61), sleeveMaterial)
-  chestStripe.position.set(0, 1.34, 0.015)
-  chestStripe.scale.z = 1.01
-  rig.add(chestStripe)
+  // Tapered waist and shirt hem give the kit a real silhouette.
+  const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.265, 0.225, 0.26, 14), shirtMaterial)
+  waist.position.y = 1.07
+  waist.scale.set(buildFactor, 1, 0.92)
+  rig.add(waist)
+  const hem = new THREE.Mesh(new THREE.CylinderGeometry(0.232, 0.226, 0.05, 14), trimMaterial)
+  hem.position.y = 0.945
+  hem.scale.z = 0.92
+  rig.add(hem)
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12), skin)
-  head.position.y = 1.95
-  head.scale.set(1, 1.08, 0.95)
-  rig.add(head)
-
-  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.242, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.56), hair)
-  hairCap.position.y = 2.02
-  hairCap.scale.set(1, 0.95, 0.98)
-  rig.add(hairCap)
-
-  const leftLeg = new THREE.Group()
-  const rightLeg = new THREE.Group()
-  leftLeg.position.set(-0.135, 0.92, 0)
-  rightLeg.position.set(0.135, 0.92, 0)
-  rig.add(leftLeg, rightLeg)
-
-  for (const [leg, side] of [[leftLeg, -1], [rightLeg, 1]]) {
-    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.085, 0.43, 8), shortsMaterial)
-    thigh.position.y = -0.18
-    leg.add(thigh)
-    const calf = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.064, 0.42, 8), sockMaterial)
-    calf.position.y = -0.58
-    leg.add(calf)
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.12, 0.32), bootMaterial)
-    boot.position.set(0, -0.83, 0.07)
-    leg.add(boot)
-    const knee = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 6), skin)
-    knee.position.y = -0.39
-    leg.add(knee)
-    leg.userData.side = side
+  const shoulderGeometry = new THREE.SphereGeometry(0.155, 12, 10)
+  for (const side of [-1, 1]) {
+    const shoulder = new THREE.Mesh(shoulderGeometry, shirtMaterial)
+    shoulder.position.set(side * 0.295 * buildFactor, 1.79, 0)
+    shoulder.scale.set(1.1 * buildFactor, 0.9, 1)
+    rig.add(shoulder)
   }
 
-  const leftArm = new THREE.Group()
-  const rightArm = new THREE.Group()
-  leftArm.position.set(-0.39, 1.6, 0)
-  rightArm.position.set(0.39, 1.6, 0)
-  rig.add(leftArm, rightArm)
-  for (const arm of [leftArm, rightArm]) {
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.07, 0.37, 8), sleeveMaterial)
-    upper.position.y = -0.17
-    arm.add(upper)
-    const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.064, 0.052, 0.35, 8), skin)
-    lower.position.y = -0.48
-    arm.add(lower)
-    if (isGK) {
-      const glove = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), material('#f7fff9', { roughness: 0.7 }))
-      glove.position.y = -0.7
-      arm.add(glove)
+  // Collar and placket.
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.028, 6, 18), trimMaterial)
+  collar.position.y = 1.93
+  collar.rotation.x = Math.PI / 2
+  rig.add(collar)
+  const placket = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.03), trimMaterial)
+  placket.position.set(0, 1.78, 0.2)
+  rig.add(placket)
+
+  const frontPanel = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.63, 0.025), trimMaterial)
+  frontPanel.position.set(0, 1.42, 0.266)
+  rig.add(frontPanel)
+
+  const numberTexture = makeNumberTexture(profile, team, isGK)
+  const numberMaterial = new THREE.MeshBasicMaterial({
+    map: numberTexture,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2
+  })
+  numberMaterial.userData.disposeWithPlayer = true
+  const number = new THREE.Mesh(new THREE.PlaneGeometry(0.39, 0.39), numberMaterial)
+  number.position.set(0, 1.43, -0.265)
+  number.rotation.y = Math.PI
+  rig.add(number)
+
+  const shortsMesh = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.25, 0.31), shortsMaterial)
+  shortsMesh.position.y = 0.94
+  shortsMesh.scale.x = 1.05
+  rig.add(shortsMesh)
+  const shortsTrim = new THREE.Mesh(new THREE.BoxGeometry(0.465, 0.035, 0.315), trimMaterial)
+  shortsTrim.position.y = 1.055
+  rig.add(shortsTrim)
+  // Split legs so the shorts read as a pair instead of a block.
+  for (const side of [-1, 1]) {
+    const shortLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.105, 0.2, 10), shortsMaterial)
+    shortLeg.position.set(side * 0.125, 0.85, 0)
+    rig.add(shortLeg)
+  }
+  const shortsNumber = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), numberMaterial)
+  shortsNumber.position.set(-0.235, 0.95, 0.16)
+  shortsNumber.rotation.y = -Math.PI / 2
+  rig.add(shortsNumber)
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.1, 0.18, 10), skin)
+  neck.position.y = 1.95
+  rig.add(neck)
+
+  // The head lives in its own group so the proportions stay believable.
+  const headGroup = new THREE.Group()
+  headGroup.position.y = 2.1
+  headGroup.scale.setScalar(0.88 + (height - 1.72) * 0.1)
+  rig.add(headGroup)
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.225, 20, 16), skin)
+  head.position.y = 0.02
+  head.scale.set(1, 1.1, 0.97)
+  headGroup.add(head)
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), skin)
+  nose.position.set(0, -0.02, 0.214)
+  nose.scale.set(0.8, 1, 1.15)
+  headGroup.add(nose)
+  const earGeometry = new THREE.SphereGeometry(0.042, 8, 6)
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(earGeometry, skin)
+    ear.position.set(side * 0.212, 0, 0)
+    ear.scale.set(0.55, 1, 0.8)
+    headGroup.add(ear)
+  }
+
+  // Face: eyes, brows and mouth keep the head readable at close camera range.
+  const eyeWhite = material('#f7f3ea', { roughness: 0.4 })
+  const eyeDark = material('#1b1512', { roughness: 0.35 })
+  const browMaterial = material(profile.hair, { roughness: 0.95 })
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.031, 8, 6), eyeWhite)
+    eye.position.set(side * 0.082, 0.032, 0.198)
+    eye.scale.set(1, 0.62, 0.5)
+    headGroup.add(eye)
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 5), eyeDark)
+    pupil.position.set(side * 0.082, 0.03, 0.215)
+    headGroup.add(pupil)
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.016, 0.016), browMaterial)
+    brow.position.set(side * 0.085, 0.085, 0.203)
+    brow.rotation.z = side * 0.12
+    headGroup.add(brow)
+  }
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.014, 0.014), material('#7a3a34', { roughness: 0.6 }))
+  mouth.position.set(0, -0.092, 0.203)
+  headGroup.add(mouth)
+  if (profile.beard) {
+    const beardMaterial = material(profile.hair, { roughness: 0.95 })
+    const beard = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.58), beardMaterial)
+    beard.position.set(0, -0.055, 0.055)
+    beard.scale.set(0.98, 0.9, 0.96)
+    headGroup.add(beard)
+  }
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), skin)
+  jaw.position.set(0, -0.108, 0.05)
+  jaw.scale.set(1, 0.72, 0.94)
+  headGroup.add(jaw)
+
+  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58), hair)
+  hairCap.position.y = 0.07
+  hairCap.scale.set(1, 0.94, 0.99)
+  headGroup.add(hairCap)
+  const hairstyle = profile.number % 5
+  if (hairstyle === 1) {
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), hair)
+    bun.position.set(0, 0.09, -0.21)
+    headGroup.add(bun)
+  } else if (hairstyle === 2) {
+    const fade = new THREE.Mesh(new THREE.CylinderGeometry(0.207, 0.217, 0.05, 12), material(profile.hair, { roughness: 0.98 }))
+    fade.position.y = -0.06
+    headGroup.add(fade)
+  } else if (hairstyle === 3) {
+    // Curly volume on top.
+    for (let i = 0; i < 7; i += 1) {
+      const curl = new THREE.Mesh(new THREE.SphereGeometry(0.072, 8, 6), hair)
+      const angle = (i / 7) * Math.PI * 2
+      curl.position.set(Math.cos(angle) * 0.11, 0.18 + Math.sin(i) * 0.018, Math.sin(angle) * 0.1)
+      headGroup.add(curl)
     }
+  } else if (hairstyle === 4) {
+    // Short crop with a squared fringe.
+    const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.07, 0.1), hair)
+    fringe.position.set(0, 0.145, 0.15)
+    headGroup.add(fringe)
+  }
+
+  const leftHip = new THREE.Group()
+  const rightHip = new THREE.Group()
+  leftHip.position.set(-0.145 * buildFactor, 0.96, 0)
+  rightHip.position.set(0.145 * buildFactor, 0.96, 0)
+  rig.add(leftHip, rightHip)
+  const legs = []
+  for (const [hip, side] of [[leftHip, -1], [rightHip, 1]]) {
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.105 * buildFactor, 0.087 * buildFactor, 0.4, 9), shortsMaterial)
+    thigh.position.y = -0.2
+    hip.add(thigh)
+    const knee = new THREE.Group()
+    knee.position.y = -0.4
+    hip.add(knee)
+    const calf = new THREE.Mesh(new THREE.CylinderGeometry(0.086 * buildFactor, 0.066 * buildFactor, 0.4, 9), sockMaterial)
+    calf.position.y = -0.2
+    knee.add(calf)
+    const sockBand = new THREE.Mesh(new THREE.CylinderGeometry(0.089, 0.089, 0.055, 9), trimMaterial)
+    sockBand.position.y = -0.075
+    knee.add(sockBand)
+    const ankle = new THREE.Group()
+    ankle.position.y = -0.4
+    knee.add(ankle)
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.105, 0.32), bootMaterial)
+    boot.position.set(0, -0.035, 0.07)
+    ankle.add(boot)
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), bootMaterial)
+    toe.position.set(0, -0.04, 0.22)
+    toe.scale.set(1, 0.55, 1.1)
+    ankle.add(toe)
+    const sole = new THREE.Mesh(new THREE.BoxGeometry(0.175, 0.028, 0.34), soleMaterial)
+    sole.position.set(0, -0.098, 0.075)
+    ankle.add(sole)
+    const collarBoot = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.068, 0.09, 8), trimMaterial)
+    collarBoot.position.set(0, 0.035, -0.01)
+    ankle.add(collarBoot)
+    const swoosh = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.035, 0.16), trimMaterial)
+    swoosh.position.set(side * 0.087, -0.03, 0.1)
+    swoosh.rotation.x = -0.25
+    ankle.add(swoosh)
+    hip.userData.side = side
+    legs.push({ hip, knee, ankle })
+  }
+
+  const leftShoulder = new THREE.Group()
+  const rightShoulder = new THREE.Group()
+  leftShoulder.position.set(-0.36 * buildFactor, 1.82, 0)
+  rightShoulder.position.set(0.36 * buildFactor, 1.82, 0)
+  rig.add(leftShoulder, rightShoulder)
+  const arms = []
+  for (const [shoulder, side] of [[leftShoulder, -1], [rightShoulder, 1]]) {
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * buildFactor, 0.075 * buildFactor, 0.34, 9), sleeveMaterial)
+    upper.position.y = -0.17
+    shoulder.add(upper)
+    const elbow = new THREE.Group()
+    elbow.position.y = -0.34
+    shoulder.add(elbow)
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.055, 0.32, 8), skin)
+    forearm.position.y = -0.16
+    elbow.add(forearm)
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.074, 0.072, 0.05, 8), trimMaterial)
+    cuff.position.y = -0.02
+    elbow.add(cuff)
+    if (isGK) {
+      const glove = new THREE.Mesh(new THREE.SphereGeometry(0.105, 9, 7), material('#f7fff9', { roughness: 0.7 }))
+      glove.position.y = -0.35
+      glove.scale.set(1, 1.35, 0.9)
+      elbow.add(glove)
+    } else {
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.072, 8, 6), skin)
+      hand.position.y = -0.35
+      elbow.add(hand)
+    }
+    shoulder.userData.side = side
+    arms.push({ shoulder, elbow })
+  }
+
+  if (isGK) {
+    const glovesHint = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.02, 6, 20), trimMaterial)
+    glovesHint.rotation.x = -Math.PI / 2
+    glovesHint.position.y = 1.25
+    glovesHint.visible = false
+    rig.add(glovesHint)
   }
 
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.7, 0.045, 8, 28),
+    new THREE.TorusGeometry(0.78, 0.045, 8, 30),
     new THREE.MeshBasicMaterial({ color: '#52ffce', transparent: true, opacity: 0.95, depthWrite: false })
   )
   ring.rotation.x = -Math.PI / 2
@@ -560,15 +775,41 @@ export function createPlayerModel(team, profile, isGK = false) {
   group.add(ring)
 
   const arrow = new THREE.Mesh(
-    new THREE.ConeGeometry(0.19, 0.4, 4),
+    new THREE.ConeGeometry(0.19, 0.42, 4),
     new THREE.MeshBasicMaterial({ color: '#52ffce' })
   )
   arrow.rotation.x = Math.PI
-  arrow.position.y = 2.75
+  arrow.position.y = 2.56
   arrow.visible = false
   group.add(arrow)
 
-  group.userData = { rig, leftLeg, rightLeg, leftArm, rightArm, ring, arrow, shadow, phase: Math.random() * Math.PI * 2, dive: 0 }
+  group.userData = {
+    rig,
+    torso,
+    leftHip,
+    rightHip,
+    leftKnee: legs[0].knee,
+    rightKnee: legs[1].knee,
+    leftAnkle: legs[0].ankle,
+    rightAnkle: legs[1].ankle,
+    leftShoulder,
+    rightShoulder,
+    leftElbow: arms[0].elbow,
+    rightElbow: arms[1].elbow,
+    ring,
+    arrow,
+    shadow,
+    number,
+    numberMaterial,
+    numberTexture,
+    updateNumber(nextProfile) {
+      drawNumber(numberTexture.image, nextProfile, team, isGK)
+      numberTexture.needsUpdate = true
+    },
+    phase: Math.random() * Math.PI * 2,
+    dive: 0,
+    lean: 0
+  }
   return group
 }
 

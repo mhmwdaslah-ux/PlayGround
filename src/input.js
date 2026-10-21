@@ -105,9 +105,9 @@ export class InputController {
     })
 
     if (!joystick) return
-    const radius = 46
     const updateFromPointer = (event) => {
       const rect = joystick.getBoundingClientRect()
+      const radius = Math.max(28, rect.width * 0.36)
       const cx = rect.left + rect.width / 2
       const cy = rect.top + rect.height / 2
       let dx = event.clientX - cx
@@ -117,8 +117,18 @@ export class InputController {
         dx = (dx / length) * radius
         dy = (dy / length) * radius
       }
-      this.touch.x = dx / radius
-      this.touch.z = -dy / radius
+      const rawX = dx / radius
+      const rawZ = -dy / radius
+      const magnitude = Math.hypot(rawX, rawZ)
+      const deadZone = 0.14
+      if (magnitude <= deadZone) {
+        this.touch.x = 0
+        this.touch.z = 0
+      } else {
+        const scaled = Math.min(1, (magnitude - deadZone) / (1 - deadZone))
+        this.touch.x = (rawX / magnitude) * scaled
+        this.touch.z = (rawZ / magnitude) * scaled
+      }
       if (knob) knob.style.transform = `translate(${dx}px, ${dy}px)`
     }
     const start = (event) => {

@@ -13,9 +13,11 @@ import { createPlayerModel } from './world.js'
 
 const BALL_RADIUS = 0.34
 const PLAYER_RADIUS = 0.55
-const CONTROL_RADIUS = 1.08
+const CONTROL_RADIUS = 1.45
 const GRAVITY = 9.81
 const ROLE_SPEED = { GK: 5.9, DF: 6.55, MF: 6.8, FW: 7.05 }
+const KICKOFF_LIMIT = 6
+const UP = new THREE.Vector3(0, 1, 0)
 const fieldClampX = PITCH.halfWidth + 2.5
 const fieldClampZ = PITCH.halfLength + 2.5
 
@@ -30,6 +32,11 @@ function approach(value, target, amount) {
 
 function randomRange(min, max) {
   return min + Math.random() * (max - min)
+}
+
+// Picks the value that lies deeper in the attacking direction's own half.
+function deeper(a, b, dir) {
+  return dir > 0 ? Math.min(a, b) : Math.max(a, b)
 }
 
 function roleForward(role) {
@@ -75,6 +82,8 @@ export class MatchEngine {
       lastTouchPlayer: null,
       lastTouchTeam: 0,
       lastPassTeam: null,
+      lastPassPlayer: null,
+      keeperTouched: false,
       controlCooldown: 0,
       spin: new THREE.Vector3()
     }
@@ -91,10 +100,15 @@ export class MatchEngine {
     this.autoSwitchCooldown = 0
     this.lastOwnerTeam = null
     this.offsideFlags = new Set()
+    this.kickoffTaker = null
+    this.kickoff = null
     this.lastShot = null
     this._tmpA = new THREE.Vector3()
     this._tmpB = new THREE.Vector3()
     this._tmpC = new THREE.Vector3()
+    this._tmpD = new THREE.Vector3()
+    this._tmpE = new THREE.Vector3()
+    this._tmpF = new THREE.Vector3()
     this.hudAccumulator = 0
   }
 
@@ -143,8 +157,8 @@ export class MatchEngine {
       yellow: [0, 0]
     }
 
-    const home = getTeam(config.homeId)
-    const away = getTeam(config.awayId)
+    const home = config.homeTeam || getTeam(config.homeId)
+    const away = config.awayTeam || getTeam(config.awayId)
     this.teams = [
       this.buildTeam(0, home, config.homeFormation || home.formation),
       this.buildTeam(1, away, config.awayFormation || away.formation)
@@ -168,11 +182,11 @@ export class MatchEngine {
 
   buildTeam(index, team, formationId) {
     const formation = FORMATIONS[formationId] || FORMATIONS[team.formation] || FORMATIONS['4-3-3']
-    const roster = createRoster(team, 11 + BENCH_SIZE)
+    const roster = team.squadPlayers?.length ? team.squadPlayers : createRoster(team, 11 + BENCH_SIZE)
     const players = []
     for (let slotIndex = 0; slotIndex < 11; slotIndex += 1) {
       const slot = formation.slots[slotIndex]
-      const profile = roster[slotIndex]
+      const profile = roster[slotIndex] || roster[roster.length - 1]
       const isGK = slot.role === 'GK'
       const player = {
         id: `${index}-${slotIndex}`,
@@ -180,11 +194,15 @@ export class MatchEngine {
         slotIndex,
         profile,
         role: slot.role,
+        pitchPosition: slot.positions?.[0] || slot.role,
+        naturalPosition: profile.position || slot.positions?.[0] || slot.role,
+        outOfPosition: false,
         slot,
         isGK,
         position: new THREE.Vector3(),
         velocity: new THREE.Vector3(),
         facing: index === 0 ? 0 : Math.PI,
+        renderFacing: index === 0 ? 0 : Math.PI,
         stamina: profile.stamina,
         maxSpeed: ROLE_SPEED[slot.role] + (profile.pace - 70) * 0.012,
         active: true,
@@ -194,12 +212,18 @@ export class MatchEngine {
         tackleTimer: 0,
         diveTimer: 0,
         diveDirection: 0,
+        kickTimer: 0,
+        passTimer: 0,
+        downTimer: 0,
+        runTimer: 0,
+        runTarget: new THREE.Vector3(),
+        decisionBias: Math.random() * Math.PI * 2,
         mesh: null
       }
       player.mesh = createPlayerModel(team, profile, isGK)
       player.position.set(slot.x * 29, 0, (index === 0 ? -1 : 1) * (PITCH.halfLength - slot.depth * 105))
       player.mesh.position.copy(player.position)
-      player.mesh.rotation.y = player.facing
+      player.mesh.rotation.y = player.renderFacing
       this.playersGroup.add(player.mesh)
       players.push(player)
       this.players.push(player)
@@ -281,7 +305,10 @@ export class MatchEngine {
       this.playersGroup.remove(child)
       child.traverse((node) => {
         if (node.geometry) node.geometry.dispose()
-        if (node.material) node.material.dispose()
+        if (node.material?.userData?.disposeWithPlayer) {
+          node.material.map?.dispose()
+          node.material.dispose()
+        }
       })
     }
     this.players = []
@@ -371,8 +398,12 @@ export class MatchEngine {
       if (player.isGK) z = ownGoal + dir * 2.2
       player.position.set(clamp(x, -31, 31), 0, clamp(z, -50, 50))
       player.velocity.set(0, 0, 0)
+      player.downTimer = 0
+      player.kickTimer = 0
+      player.passTimer = 0
       player.mesh.position.copy(player.position)
-      player.mesh.rotation.y = player.facing
+      player.renderFacing = player.facing
+      player.mesh.rotation.y = player.renderFacing
     }
     this.positionBallAtFeet()
   }
@@ -399,6 +430,13 @@ export class MatchEngine {
       this.ball.owner = taker
       this.ball.lastTouchPlayer = taker
       this.ball.lastTouchTeam = kickoffTeam
+      this.kickoffTaker = taker
+      this.kickoff = {
+        team: kickoffTeam,
+        takerId: taker.id,
+        timer: KICKOFF_LIMIT,
+        active: true
+      }
       if (this.humans[kickoffTeam]) this.setControlled(kickoffTeam, taker.id)
     }
     const other = this.teams[1 - kickoffTeam]
@@ -461,6 +499,19 @@ export class MatchEngine {
       charging: this.humanStates[0].charging,
       formation: this.teams[0]?.formation,
       mentality: this.teams[0]?.mentality,
+      lineup: (this.teams[0]?.players || []).map((player) => ({
+        id: player.id,
+        name: player.profile.name,
+        number: player.profile.number,
+        position: player.pitchPosition,
+        role: player.role,
+        natural: player.naturalPosition,
+        outOfPosition: player.pitchPosition !== player.naturalPosition,
+        stamina: Math.round(player.stamina),
+        rating: player.profile.overall || 70,
+        slotX: player.slot.x,
+        slotDepth: player.slot.depth
+      })),
       subsLeft: this.teams[0] ? MAX_SUBS - this.teams[0].subsUsed : 0,
       practicePoints: this.practicePoints,
       practiceGoals: this.practiceGoals,
@@ -473,8 +524,22 @@ export class MatchEngine {
         gk: player.isGK,
         active: teamIndexControlled(this, player)
       })),
-      ballRadar: { x: this.ball.position.x, z: this.ball.position.z }
+      ballRadar: { x: this.ball.position.x, z: this.ball.position.z },
+      kickoff: this.kickoff?.active
+        ? { team: this.kickoff.team, seconds: Math.max(0, Math.ceil(this.kickoff.timer)) }
+        : null
     }
+  }
+
+  getStatKeys() {
+    const map = {}
+    for (const team of this.teams) {
+      for (const player of team.players) {
+        const cardId = player.profile.cardId
+        map[player.id] = cardId ? `myclub-${cardId}` : `${team.team.id}-${player.slotIndex}`
+      }
+    }
+    return map
   }
 
   getControlledRaw(teamIndex) {
@@ -491,6 +556,7 @@ export class MatchEngine {
     }
     const step = Math.min(dt, 0.034)
     this.autoSwitchCooldown = Math.max(0, this.autoSwitchCooldown - step)
+    this.updateKickoffLock(step)
     this.ball.controlCooldown = Math.max(0, this.ball.controlCooldown - step)
     this.updatePracticeTargets(step)
 
@@ -580,13 +646,19 @@ export class MatchEngine {
   }
 
   refreshPressMap() {
+    const pressWeight = { ST: 0.82, LW: 0.86, RW: 0.86, CAM: 0.92, CM: 0.96, CDM: 1.04, CB: 1.12, LB: 1.16, RB: 1.16 }
     for (const index of [0, 1]) {
       const team = this.teams[index]
       if (!team) continue
       this.pressMap[index] = team.players
         .filter((player) => player.active && !player.isGK)
-        .sort((a, b) => a.position.distanceToSquared(this.ball.position) - b.position.distanceToSquared(this.ball.position))
+        .map((player) => ({
+          player,
+          score: player.position.distanceTo(this.ball.position) * (pressWeight[player.pitchPosition] || 1)
+        }))
+        .sort((a, b) => a.score - b.score)
         .slice(0, 3)
+        .map((entry) => entry.player)
     }
   }
 
@@ -596,6 +668,10 @@ export class MatchEngine {
       player.ballCooldown = Math.max(0, player.ballCooldown - dt)
       player.tackleTimer = Math.max(0, player.tackleTimer - dt)
       player.diveTimer = Math.max(0, player.diveTimer - dt * 2.4)
+      player.kickTimer = Math.max(0, player.kickTimer - dt)
+      player.passTimer = Math.max(0, player.passTimer - dt)
+      player.downTimer = Math.max(0, player.downTimer - dt)
+      player.runTimer = Math.max(0, player.runTimer - dt)
     }
   }
 
@@ -611,8 +687,7 @@ export class MatchEngine {
     if (!player) return
     const input = this.input.getState(teamIndex, this.settings.scheme)
     const state = this.humanStates[teamIndex]
-    const dir = new THREE.Vector3(input.x, 0, input.z)
-    if (dir.lengthSq() > 0.001) dir.normalize()
+    const dir = this.cameraRelativeDirection(input.x, input.z)
     const sprint = input.down.sprint && player.stamina > 2
 
     if (state.charging) {
@@ -655,7 +730,30 @@ export class MatchEngine {
     }
   }
 
+  cameraRelativeDirection(x, z, target = new THREE.Vector3()) {
+    const camera = this.world.camera
+    const forward = this._cameraForward || (this._cameraForward = new THREE.Vector3())
+    camera.getWorldDirection(forward)
+    forward.y = 0
+    if (!Number.isFinite(forward.x) || !Number.isFinite(forward.z) || forward.lengthSq() < 0.001) {
+      forward.set(0, 0, 1)
+    }
+    forward.normalize()
+    const right = this._cameraRight || (this._cameraRight = new THREE.Vector3())
+    right.crossVectors(forward, UP)
+    if (!Number.isFinite(right.x) || right.lengthSq() < 0.0001) right.set(1, 0, 0)
+    else right.normalize()
+    const dirX = right.x * x + forward.x * z
+    const dirZ = right.z * x + forward.z * z
+    if (!Number.isFinite(dirX) || !Number.isFinite(dirZ)) return target.set(0, 0, 0)
+    return target.set(dirX, 0, dirZ)
+  }
+
   applyMovement(player, dirX, dirZ, sprint, dt) {
+    if (!Number.isFinite(dirX) || !Number.isFinite(dirZ)) {
+      player.velocity.set(0, 0, 0)
+      return
+    }
     const dirLength = Math.hypot(dirX, dirZ)
     const staminaFactor = player.stamina > 18 ? 1 : 0.76 + player.stamina * 0.012
     const sprintFactor = sprint ? 1.34 : 1
@@ -668,7 +766,7 @@ export class MatchEngine {
       player.velocity.z += (targetZ - player.velocity.z) * acceleration
       player.facing = Math.atan2(dirX, dirZ)
     } else {
-      const decel = 1 - Math.exp(-12 * dt)
+      const decel = 1 - Math.exp(-15.5 * dt)
       player.velocity.x -= player.velocity.x * decel
       player.velocity.z -= player.velocity.z * decel
     }
@@ -683,11 +781,13 @@ export class MatchEngine {
   }
 
   simulatePlayers(dt) {
+    const turnSpeed = 1 - Math.exp(-16 * dt)
     for (const player of this.players) {
       if (!player.active) continue
-      player.position.x += 0
       player.mesh.position.copy(player.position)
-      player.mesh.rotation.y = player.facing
+      const turn = Math.atan2(Math.sin(player.facing - player.renderFacing), Math.cos(player.facing - player.renderFacing))
+      player.renderFacing += turn * turnSpeed
+      player.mesh.rotation.y = player.renderFacing
     }
   }
 
@@ -736,10 +836,14 @@ export class MatchEngine {
       const isFirst = press[0] === player
       const isSecond = press[1] === player
       const dir = player.team === 0 ? 1 : -1
+      const goalZ = dir * PITCH.halfLength
 
       if (!owner || owner.team !== player.team) {
-        if (isFirst) {
-          const intercept = this.ball.position.clone().addScaledVector(this.ball.velocity, 0.24)
+        if (!owner && player.runTimer > 0) {
+          // The receiver of a pass meets the ball where it can actually be reached.
+          target.copy(this.computeIntercept(player))
+        } else if (isFirst) {
+          const intercept = this.computeIntercept(player)
           if (owner) {
             intercept.x += (player.position.x - intercept.x) * 0.22
             intercept.z -= dir * 0.9
@@ -747,26 +851,68 @@ export class MatchEngine {
           target.copy(intercept)
         } else if (isSecond && this.ball.position.z * dir < 15) {
           target.copy(this.ball.position).lerp(player.position, 0.35)
+        } else {
+          this.positionalDefendTarget(player, target)
+          const mark = this.findMarkingTarget(player)
+          if (mark) {
+            if (mark === owner) {
+              // Guard the carrier from the side so a shooting lane stays open.
+              const goalZ = dir * PITCH.halfLength
+              const toGoalX = 0 - mark.position.x
+              const toGoalZ = goalZ - mark.position.z
+              const length = Math.hypot(toGoalX, toGoalZ) || 1
+              const perpX = -toGoalZ / length
+              const perpZ = toGoalX / length
+              const side = player.slotIndex % 2 === 0 ? 1 : -1
+              const laneX = mark.position.x + (toGoalX / length) * 1.1 + perpX * side * 1.7
+              const laneZ = mark.position.z + (toGoalZ / length) * 1.1 + perpZ * side * 1.7
+              target.x = target.x * 0.35 + laneX * 0.65
+              target.z = target.z * 0.35 + laneZ * 0.65
+            } else {
+              target.x += (mark.position.x - target.x) * 0.42
+              target.z += (mark.position.z - dir * 1.6 - target.z) * 0.42
+            }
+          }
         }
         if (owner && owner.team !== player.team && isFirst) {
           const dist = player.position.distanceTo(owner.position)
-          const tackleChance = dt * 1.65 * this.difficulty.tackle
+          const tackleChance = dt * 1.15 * this.difficulty.tackle
           if (dist < 2.1 && player.tackleCooldown <= 0 && Math.random() < tackleChance) {
             this.attemptTackle(player, null)
           }
         }
+        if (owner && owner.team !== player.team && isSecond && this.ball.position.z * dir < 30) {
+          const cover = this.ball.position.clone().lerp(player.position, 0.18)
+          cover.z -= dir * 2.4
+          target.lerp(cover, 0.35)
+        }
       } else if (owner.team === player.team) {
-        const goalZ = dir * PITCH.halfLength
-        if (player.role === 'FW') {
-          target.z += dir * (5.5 + Math.sin(this.elapsed * 0.6 + player.slotIndex) * 2.2)
-          target.x += Math.sin(this.elapsed * 0.4 + player.slotIndex) * 2.8
-        } else if (player.role === 'MF') {
-          target.z += dir * 2.5
+        const carrier = owner
+        if (player.runTimer > 0) {
+          // The intended receiver of a pass: get to the ball before the opponent does.
+          target.copy(player.runTarget)
+          target.z -= dir * 0.6
+        } else {
+          this.positionalAttackTarget(player, target)
         }
-        if (player.position.distanceTo(this.ball.position) < 32 && player.position.z * dir > this.ball.position.z * dir - 4) {
-          target.x += (this.ball.position.x - target.x) * 0.08
+        if (player.position.distanceTo(this.ball.position) < 26 && player.position.z * dir > this.ball.position.z * dir - 8) {
+          target.x += (this.ball.position.x - target.x) * 0.1
         }
-        target.z = clamp(target.z, -goalZ * 0.96, Math.abs(goalZ) * 0.96)
+        target.z = clamp(target.z, -PITCH.halfLength * 0.96, PITCH.halfLength * 0.96)
+      }
+
+      if (!isFirst && !isSecond) {
+        for (const mate of team.players) {
+          if (mate === player || !mate.active || mate.isGK) continue
+          const dx = player.position.x - mate.position.x
+          const dz = player.position.z - mate.position.z
+          const separation = Math.hypot(dx, dz)
+          if (separation > 0.01 && separation < 7.5) {
+            const push = (7.5 - separation) * 0.32
+            target.x += (dx / separation) * push
+            target.z += (dz / separation) * push
+          }
+        }
       }
 
       target.x = clamp(target.x, -31, 31)
@@ -775,12 +921,140 @@ export class MatchEngine {
       const distance = Math.hypot(delta.x, delta.z)
       if (distance > 0.55) {
         const urgency = owner && owner.team !== player.team ? 1.04 : 1
-        const sprint = distance > 9 && player.stamina > 22 && (isFirst || player.role === 'FW')
+        const sprint = distance > 9 && player.stamina > 22 && (isFirst || player.role === 'FW' || player.runTimer > 0)
         this.applyMovement(player, delta.x / distance, delta.z / distance, sprint, dt * urgency)
       } else {
         this.applyMovement(player, 0, 0, false, dt)
       }
     }
+  }
+
+  positionalAttackTarget(player, target) {
+    const dir = player.team === 0 ? 1 : -1
+    const ball = this.ball.position
+    const lastDefenderZ = this.getLastDefenderZ(player.team)
+    const ballProgress = ball.z * dir
+    const slot = player.slot
+    const position = player.pitchPosition
+    const width = PITCH.halfWidth
+    const baseX = slot.x * 29
+
+    switch (position) {
+      case 'ST': {
+        // Stay on the shoulder of the last defender and hunt for the box.
+        target.z = clamp(lastDefenderZ + dir * 5.2, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.5 + Math.sin(this.elapsed * 0.45 + player.slotIndex) * 6, -20, 20)
+        break
+      }
+      case 'LW':
+      case 'RW': {
+        // Stay wide, then cut inside when the ball is close to the box.
+        const side = position === 'LW' ? -1 : 1
+        const wide = side * width * 0.78
+        const inside = ballProgress > 26 ? side * width * 0.32 : wide
+        target.x = inside
+        target.z = clamp(ball.z + dir * (ballProgress > 26 ? 8 : 13), -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        break
+      }
+      case 'CAM': {
+        // Arrive late in the box, between the lines.
+        const advanced = ballProgress > 20
+        target.z = clamp(ball.z + dir * (advanced ? 11 : 7), -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(ball.x * 0.35 + baseX * 0.35, -20, 20)
+        break
+      }
+      case 'CM': {
+        // Link play: sit behind the ball and offer a passing lane.
+        target.z = clamp(ball.z - dir * 5, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.75 + ball.x * 0.25, -26, 26)
+        break
+      }
+      case 'CDM': {
+        // Screen in front of the defence.
+        target.z = clamp(ball.z - dir * 9, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(ball.x * 0.3, -14, 14)
+        break
+      }
+      case 'CB': {
+        // Hold the defensive line, goal side of the strikers.
+        const line = deeper(ball.z - dir * 18, lastDefenderZ - dir * 3, dir)
+        target.z = clamp(line, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.9 + ball.x * 0.1, -26, 26)
+        break
+      }
+      case 'LB':
+      case 'RB': {
+        // Full back: hold the flank and support the wing.
+        const side = position === 'LB' ? -1 : 1
+        const push = ballProgress > 22 ? 6 : 0
+        target.x = side * width * 0.74
+        target.z = clamp(ball.z - dir * 2 + dir * push, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        break
+      }
+      default: {
+        target.z = clamp(ball.z + dir * 6, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX, -28, 28)
+        break
+      }
+    }
+    return target
+  }
+
+  positionalDefendTarget(player, target) {
+    const dir = player.team === 0 ? 1 : -1
+    const ownGoalZ = -dir * PITCH.halfLength
+    const ball = this.ball.position
+    const ballProgress = ball.z * dir
+    const slot = player.slot
+    const baseX = slot.x * 29
+
+    switch (player.pitchPosition) {
+      case 'CB': {
+        // Stay between the ball and the goal, and never be dragged out of shape.
+        const line = deeper(ownGoalZ + dir * 16, ball.z - dir * 6, dir)
+        target.z = clamp(line, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.9 + ball.x * 0.16, -26, 26)
+        break
+      }
+      case 'LB':
+      case 'RB': {
+        const side = player.position === 'LB' ? -1 : 1
+        const line = deeper(ownGoalZ + dir * 20, ball.z - dir * 3, dir)
+        target.z = clamp(line, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(side * PITCH.halfWidth * 0.7 + ball.x * 0.12, -30, 30)
+        break
+      }
+      case 'CDM': {
+        target.z = clamp(ball.z - dir * 7, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(ball.x * 0.25, -16, 16)
+        break
+      }
+      case 'CM': {
+        target.z = clamp(ball.z - dir * 4, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.6 + ball.x * 0.3, -24, 24)
+        break
+      }
+      case 'CAM':
+      case 'LW':
+      case 'RW': {
+        // The attacking block drops in and screens the space in front of the defence.
+        target.z = clamp(ball.z - dir * 10, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.8 + ball.x * 0.2, -28, 28)
+        break
+      }
+      case 'ST': {
+        // The striker presses the highest defender.
+        target.z = clamp(ball.z - dir * 2, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX * 0.6 + ball.x * 0.35, -22, 22)
+        break
+      }
+      default: {
+        target.z = clamp(ball.z - dir * 8, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+        target.x = clamp(baseX, -28, 28)
+        break
+      }
+    }
+    return target
   }
 
   getFormationTarget(player) {
@@ -809,6 +1083,13 @@ export class MatchEngine {
 
   updateAIOwner(player, dt) {
     const dir = player.team === 0 ? 1 : -1
+    if (this.kickoff?.active && player.id === this.kickoff.takerId) {
+      // Kick-off: play the ball back to a team-mate to start the move.
+      if (this.playKickoffTo(player)) {
+        player.decisionTimer = randomRange(0.4, 0.8)
+        return
+      }
+    }
     const goalZ = dir * PITCH.halfLength
     const goal = this._tmpB.set(0, 0, goalZ)
     const toGoal = this._tmpC.copy(goal).sub(player.position)
@@ -817,55 +1098,117 @@ export class MatchEngine {
     if (distanceToGoal > 0.1) toGoal.normalize()
     const opponent = this.nearestOpponent(player)
     const pressure = opponent ? opponent.position.distanceTo(player.position) : 99
-    if (pressure < 3.5 && opponent) {
-      const away = this._tmpA.copy(player.position).sub(opponent.position)
+    const difficulty = this.difficulty
+
+    // Steer: drive at the goal, roll off the closest defender, open the angle near the box.
+    const desired = this._tmpD.copy(toGoal)
+    if (opponent && pressure < 6.5) {
+      // Dodge around the defender instead of turning away from the goal.
+      const away = this._tmpE.copy(player.position).sub(opponent.position)
       away.y = 0
       if (away.lengthSq() > 0.01) away.normalize()
-      toGoal.x += away.x * 0.55
-      toGoal.z += away.z * 0.25
-      toGoal.normalize()
+      const dodge = clamp((6.5 - pressure) / 6.5, 0, 1)
+      const perpX = -toGoal.z
+      const perpZ = toGoal.x
+      const side = away.x * perpX + away.z * perpZ
+      const sign = side >= 0 ? 1 : -1
+      desired.x += perpX * sign * 0.8 * dodge
+      desired.z += perpZ * sign * 0.8 * dodge
     }
-    if (Math.abs(player.position.x) > 26) {
-      toGoal.x += (0 - player.position.x) * 0.06
-      toGoal.normalize()
+    if (distanceToGoal < 32) {
+      const flank = player.position.x > 0 ? -1 : 1
+      desired.x += flank * 0.26
     }
-    this.applyMovement(player, toGoal.x, toGoal.z, distanceToGoal > 14 && player.stamina > 28, dt)
+    if (Math.abs(player.position.x) > 27) desired.x += (0 - player.position.x) * 0.09
+    if (desired.lengthSq() > 0.0001) desired.normalize()
+    const sprint = (pressure > 2.4 || distanceToGoal > 12) && player.stamina > 20
+    this.applyMovement(player, desired.x, desired.z, sprint, dt)
+
     player.decisionTimer -= dt
     if (player.decisionTimer > 0) return
 
     const angle = Math.abs(player.position.x)
-    const keeper = this.getOpponentKeeper(player.team)
-    const shotRange = distanceToGoal < 25 && angle < 25
-    const close = distanceToGoal < 14
-    const contest = this.teams[1 - player.team]
-    const ratingBonus = (player.team === 0 ? this.teams[0].team.rating : this.teams[1].team.rating) * 0.001
-    const shootProbability = close ? 0.95 : shotRange ? 0.62 : 0.08
-    if ((shotRange && Math.random() < shootProbability) || (pressure < 1.7 && Math.random() < 0.18)) {
-      const power = clamp(0.42 + distanceToGoal / 38 + randomRange(-0.1, 0.16), 0.35, 1)
-      this.shootBall(player, power, true)
-      player.decisionTimer = randomRange(0.9, 1.5)
+    const inShootingRange = distanceToGoal < 26 && angle < 25
+    const inBox = distanceToGoal < 17 && angle < 21
+    const laneBlocked = this.passLanePenalty(player.position, goal, player.team) > 0.8
+    const shotQuality = clamp(1 - angle / 32, 0.12, 1) * clamp(1 - distanceToGoal / 36, 0.22, 1)
+    const passOption = this.findPassTarget(player, null, true)
+
+    // 1. Shoot when the goal is in sight and the lane is open.
+    if (inShootingRange) {
+      const greed = inBox ? 0.86 : 0.38 + difficulty.press * 0.2
+      const chance = greed * (0.5 + shotQuality * 0.72) * (laneBlocked ? 0.7 : 1)
+      if (Math.random() < chance) {
+        const power = clamp(0.4 + distanceToGoal / 46 + randomRange(-0.05, 0.14), 0.34, 1)
+        this.shootBall(player, power, true)
+        player.decisionTimer = randomRange(0.7, 1.15)
+        return
+      }
+    }
+
+    // 2. Under pressure: release the ball or fight for it.
+    if (pressure < 2.9) {
+      if (passOption && passOption.laneClear) {
+        const through = passOption.progress > 10 && Math.random() < 0.6
+        this.passBall(player, through ? 'through' : 'pass', null, true)
+        player.decisionTimer = randomRange(0.4, 0.8)
+        return
+      }
+      player.decisionTimer = randomRange(0.22, 0.45)
       return
     }
 
-    const passChoice = this.findPassTarget(player, null, true)
-    if (pressure < 2.8 || Math.random() < 0.62) {
-      if (passChoice) {
-        const through = passChoice.progress > 12 && Math.random() < 0.36
-        this.passBall(player, through ? 'through' : 'pass', null, true)
-      } else if (distanceToGoal > 32) {
-        this.passBall(player, 'pass', null, true)
-      } else {
-        this.shootBall(player, 0.66, true)
+    // 3. Free: keep the ball, drive forward, and only release it when it clearly improves.
+    if (passOption && passOption.progress > 12 && passOption.laneClear && Math.random() < 0.1) {
+      const through = passOption.progress > 15 && Math.random() < 0.45
+      this.passBall(player, through ? 'through' : 'pass', null, true)
+      player.decisionTimer = randomRange(0.5, 0.9)
+      return
+    }
+    player.decisionTimer = randomRange(0.26, 0.5) + difficulty.reaction * 0.55
+  }
+
+  computeIntercept(player) {
+    const ball = this.ball
+    const speed = Math.hypot(ball.velocity.x, ball.velocity.z)
+    const toBall = player.position.distanceTo(ball.position)
+    let lead = 0.22
+    if (speed > 0.6) {
+      lead = clamp(toBall / Math.max(3, player.maxSpeed + speed * 0.45), 0.05, 1.1)
+    }
+    return ball.position.clone().addScaledVector(ball.velocity, lead)
+  }
+
+  getLastDefenderZ(teamIndex) {
+    const dir = teamIndex === 0 ? 1 : -1
+    let deepest = null
+    for (const other of this.players) {
+      if (!other.active || other.team === teamIndex || other.isGK) continue
+      if (other.role !== 'DF') continue
+      const value = other.position.z * dir
+      if (deepest === null || value > deepest) deepest = value
+    }
+    if (deepest === null) return dir * PITCH.halfLength * 0.45
+    return deepest * dir
+  }
+
+  findMarkingTarget(player) {
+    const dir = player.team === 0 ? 1 : -1
+    const ownGoalZ = -dir * PITCH.halfLength
+    let best = null
+    let bestScore = Infinity
+    for (const other of this.players) {
+      if (!other.active || other.team === player.team || other.isGK) continue
+      const distance = other.position.distanceTo(player.position)
+      if (distance > 16) continue
+      const threat = Math.abs(other.position.z - ownGoalZ)
+      const score = distance - threat * 0.35
+      if (score < bestScore) {
+        bestScore = score
+        best = other
       }
-    } else if (passChoice && passChoice.score > 1.1 && Math.random() < 0.44) {
-      this.passBall(player, 'pass', null, true)
     }
-    const reaction = this.difficulty.reaction
-    player.decisionTimer = randomRange(0.45, 1.15) + reaction * 0.8
-    if (contest && keeper) {
-      // Keeps the decision loop grounded even when the keeper is far away.
-      player.decisionTimer = Math.min(player.decisionTimer, 1.8)
-    }
+    return best
   }
 
   updateGoalkeeper(player, dt) {
@@ -883,12 +1226,21 @@ export class MatchEngine {
     if (ballInBox && !this.ball.owner && ballSpeed > 11 && incoming) {
       const timeToLine = Math.abs((ownGoalZ - ball.z) / (this.ball.velocity.z || 0.001))
       if (timeToLine < 0.85) {
-        const predictedX = ball.x + this.ball.velocity.x * timeToLine
-        targetX = clamp(predictedX, -3.25, 3.25)
-        urgency = 2.2
-        player.diveDirection = Math.sign(targetX - player.position.x) || 1
-        if (player.diveTimer <= 0) player.mesh.userData.dive = 0.55
-        player.diveTimer = 0.45
+        // The keeper commits to a dive once and cannot correct it afterwards.
+        if (player.diveTimer <= 0) {
+          const predictedX = ball.x + this.ball.velocity.x * timeToLine
+          const readError = randomRange(-1.25, 1.25) * (1.35 - this.difficulty.keeper)
+          const guess = clamp(predictedX + readError, -3.4, 3.4)
+          player.diveTargetX = clamp(guess, -3.25, 3.25)
+          urgency = 1.7
+          player.diveDirection = Math.sign(player.diveTargetX - player.position.x) || 1
+          player.mesh.userData.dive = player.diveDirection
+          player.diveTimer = 0.45
+        }
+        if (player.diveTimer > 0) {
+          targetX = player.diveTargetX ?? targetX
+          urgency = Math.max(urgency, 1.2)
+        }
       }
     } else if (ballInBox && this.ball.owner && this.ball.owner.team !== player.team) {
       const dist = player.position.distanceTo(ball)
@@ -906,7 +1258,7 @@ export class MatchEngine {
     const dz = targetZ - player.position.z
     const dist = Math.hypot(dx, dz)
     if (dist > 0.08) {
-      const speed = Math.min(1, (4.2 * urgency + this.difficulty.aiSpeed) * dt / Math.max(dist, 0.01))
+      const speed = Math.min(1, (3.4 * urgency + this.difficulty.aiSpeed) * dt / Math.max(dist, 0.01))
       player.position.x += dx * speed
       player.position.z += dz * speed
       player.position.x = clamp(player.position.x, -4.4, 4.4)
@@ -956,7 +1308,7 @@ export class MatchEngine {
       toMate.y = 0
       const distance = toMate.length()
       if (distance < 3.4) continue
-      if (ai && distance > 48) continue
+      if (ai && distance > 34) continue
       if (!ai && distance > 44) continue
       const normalized = toMate.clone().normalize()
       const alignment = normalized.dot(aim)
@@ -968,14 +1320,41 @@ export class MatchEngine {
       if (through) targetPoint.addScaledVector(new THREE.Vector3(Math.sin(mate.facing), 0, Math.cos(mate.facing)), 6.5)
       const distanceToPoint = targetPoint.distanceTo(player.position)
       let score = alignment * 2.6 + progress * 0.016 + (mate.role === 'FW' ? 0.32 : 0) - distanceToPoint * 0.008 - lanePenalty * 1.15
+      if (ai) {
+        // The AI prefers safe forward options with room around the receiver.
+        const space = this.spaceAround(mate)
+        score = progress * 0.044 + space * 0.055 + (mate.role === 'FW' ? 0.85 : mate.role === 'MF' ? 0.4 : 0)
+        score -= distanceToPoint * 0.02 + lanePenalty * 1.9
+        if (mate.isGK) score -= 2.4
+        if (this.pressureOn(mate) > 0) score -= 0.5
+      }
       if (through) score += progress * 0.012
-      if (mate.isGK) score -= 2.2
       if (score > bestScore) {
         bestScore = score
-        best = { mate, target: targetPoint, distance, progress, score }
+        best = { mate, target: targetPoint, distance, progress, score, laneClear: lanePenalty < (ai ? 0.2 : 0.34) }
       }
     }
     return best
+  }
+
+  spaceAround(player) {
+    let space = 12
+    for (const other of this.players) {
+      if (!other.active || other.team === player.team || other.isGK) continue
+      const distance = other.position.distanceTo(player.position)
+      if (distance < space) space = distance
+    }
+    return space
+  }
+
+  pressureOn(player) {
+    let pressure = 0
+    for (const other of this.players) {
+      if (!other.active || other.team === player.team || other.isGK) continue
+      const distance = other.position.distanceTo(player.position)
+      if (distance < 4.5) pressure += (4.5 - distance) / 4.5
+    }
+    return pressure
   }
 
   passLanePenalty(from, to, teamIndex) {
@@ -1011,27 +1390,45 @@ export class MatchEngine {
       if (!through) target.addScaledVector(choice.mate.velocity, 0.2)
       power = through ? 0.85 : 0.68
       if (through) this.markOffsideFlags(team, player)
+      // Send the intended receiver toward the ball so the pass can actually be taken.
+      choice.mate.runTarget.copy(target)
+      choice.mate.runTimer = through ? 3.2 : 2.6
     } else {
       target = player.position.clone().addScaledVector(aimDir && aimDir.lengthSq() > 0.01 ? aimDir.clone().normalize() : playerForward, 18)
       target.z += dir * 2
       power = 0.72
     }
     if (choice && !choice.mate.isGK) this.markOffsideFlags(team, player)
+    if (choice) {
+      // Lead the receiver so the ball arrives where he is running to.
+      const rough = this.ball.position.distanceTo(choice.mate.position)
+      const roughSpeed = clamp(10 + rough * 0.16, 11, 16) * (through ? 1.14 : 1)
+      target.addScaledVector(choice.mate.velocity, Math.min(0.9, (rough / roughSpeed) * 0.8))
+    }
     const toTarget = target.clone().sub(this.ball.position)
     toTarget.y = 0
     const distance = toTarget.length()
     if (distance < 0.3) return
     const horizontal = toTarget.normalize()
-    const speed = clamp(14 + distance * 0.24, 15, 27) * (through ? 1.05 : 1)
-    const lift = distance > 24 ? 2.7 : distance > 14 ? 0.8 : 0.18
+    const speed = clamp(10 + distance * 0.16, 11, 16) * (through ? 1.14 : 1)
+    const lift = distance > 26 ? 1.9 : distance > 16 ? 0.6 : 0.12
+    if (choice) {
+      choice.mate.runTarget.copy(target)
+    }
     this.ball.owner = null
+    this.ball.isShot = false
+    this.ball.shotPower = 0
+    this.ball.keeperTouched = false
+    if (this.kickoff?.active && player.id === this.kickoff.takerId) this.endKickoffLock()
     this.ball.controlCooldown = 0.34
     this.ball.lastTouchPlayer = player
     this.ball.lastTouchTeam = team
     this.ball.lastPassTeam = team
+    this.ball.lastPassPlayer = player
     this.ball.velocity.set(horizontal.x * speed, lift, horizontal.z * speed)
     this.ball.spin.set(horizontal.z * 8, horizontal.x * 5, 0)
     this.stats.passes[team] += 1
+    player.passTimer = 0.3
     player.decisionTimer = randomRange(0.5, 1.1)
     this.audio.pass()
     this.emit('pass', { team, through })
@@ -1050,11 +1447,11 @@ export class MatchEngine {
     if (player.position.x > 0) preferredSide = -1
     if (player.position.x < 0) preferredSide = 1
     const spread = ai ? this.difficulty.shotError : 0.7
-    let targetX = preferredSide * randomRange(2.0, 3.2) + randomRange(-spread, spread) * 0.65
+    let targetX = preferredSide * randomRange(2.0, 3.2) + randomRange(-spread, spread) * 0.85
     if (Math.abs(player.position.x) > 24) {
       targetX = Math.sign(-player.position.x || 1) * randomRange(1.2, 2.7) + randomRange(-spread, spread) * 0.4
     }
-    targetX = clamp(targetX, -3.42, 3.42)
+    targetX = clamp(targetX, -4.15, 4.15)
     const targetY = randomRange(0.55, 1.85) + (power > 0.85 ? 0.3 : 0)
     const target = new THREE.Vector3(targetX, targetY, goalZ)
     const from = this.ball.position.clone()
@@ -1062,8 +1459,8 @@ export class MatchEngine {
     const distance = horizontal.length()
     if (distance < 0.1) return
     horizontal.normalize()
-    const speed = clamp(22 + power * 10 + (ai ? 1.5 : 0), 22, 34)
-    const flightTime = Math.max(0.22, distance / speed)
+    const speed = clamp(27 + power * 13 + (ai ? 2 : 0), 27, 43)
+    const flightTime = Math.max(0.16, distance / speed)
     const vy = (target.y - from.y) / flightTime + 0.5 * GRAVITY * flightTime
     const error = ai ? this.difficulty.shotError : 0.52
     const yawError = randomRange(-error, error) * 0.03
@@ -1073,12 +1470,17 @@ export class MatchEngine {
     const vz = (horizontal.x * sin + horizontal.z * cos) * speed
     this.ball.owner = null
     this.ball.controlCooldown = 0.42
+    if (this.kickoff?.active && player.id === this.kickoff.takerId) this.endKickoffLock()
+    this.ball.isShot = true
+    this.ball.keeperTouched = false
+    this.ball.shotPower = power
     this.ball.lastTouchPlayer = player
     this.ball.lastTouchTeam = team
     this.ball.lastPassTeam = team
     this.ball.velocity.set(vx, clamp(vy, -1.5, 9), vz)
     this.ball.spin.set(vz * 0.25, 0, -vx * 0.25)
     this.stats.shots[team] += 1
+    player.kickTimer = 0.42
     if (Math.abs(target.x) < PITCH.goalWidth / 2 && target.y < PITCH.goalHeight) {
       this.stats.onTarget[team] += 1
     }
@@ -1090,7 +1492,7 @@ export class MatchEngine {
 
   attemptTackle(player, dir = null) {
     if (player.tackleCooldown > 0) return
-    player.tackleCooldown = 0.82
+    player.tackleCooldown = 1.1
     player.tackleTimer = 0.32
     player.ballCooldown = 0.2
     const forward = dir && dir.lengthSq() > 0.01 ? dir.clone().normalize() : new THREE.Vector3(Math.sin(player.facing), 0, Math.cos(player.facing))
@@ -1114,6 +1516,7 @@ export class MatchEngine {
     const fromBehind = Math.cos(target.facing) * (player.position.z - target.position.z) + Math.sin(target.facing) * (player.position.x - target.position.x) < 0
     const foulChance = this.practice ? 0 : clamp(0.1 + (fromBehind ? 0.11 : 0) + (player.stamina < 30 ? 0.08 : 0), 0, 0.38)
     if (Math.random() < foulChance) {
+      target.downTimer = 1.05
       this.stats.fouls[player.team] += 1
       this.audio.whistle()
       const penalty = Math.abs(target.position.z - targetOwnGoalZ) < PITCH.penaltyDepth && Math.abs(target.position.x) < PITCH.penaltyWidth / 2
@@ -1126,7 +1529,7 @@ export class MatchEngine {
       this.awardFreeKick(target.team, target.position.clone(), penalty, 'FOUL')
       return
     }
-    const winChance = clamp(0.48 + this.difficulty.tackle * 0.26 + (fromBehind ? 0.12 : 0), 0.35, 0.92)
+    const winChance = clamp(0.4 + this.difficulty.tackle * 0.24 + (fromBehind ? 0.1 : 0), 0.3, 0.86)
     this.audio.tackle()
     if (this.ball.owner === target && Math.random() < winChance) {
       this.ball.owner = player
@@ -1144,6 +1547,7 @@ export class MatchEngine {
       }
       this.emit('tackle', { team: player.team })
     } else if (Math.random() < 0.35) {
+      target.downTimer = 0.42
       const away = new THREE.Vector3(Math.sin(player.facing + randomRange(-0.4, 0.4)), 0, Math.cos(player.facing + randomRange(-0.4, 0.4)))
       this.ball.velocity.set(away.x * 7, 1.2, away.z * 7)
       this.ball.owner = null
@@ -1341,7 +1745,7 @@ export class MatchEngine {
           ball.velocity.z *= 0.86
         } else {
           ball.velocity.y = 0
-          const friction = Math.exp(-1.55 * dt)
+          const friction = Math.exp(-1.7 * dt)
           ball.velocity.x *= friction
           ball.velocity.z *= friction
         }
@@ -1376,11 +1780,13 @@ export class MatchEngine {
         const nz = dz / length
         const dot = this.ball.velocity.x * nx + this.ball.velocity.z * nz
         if (dot < 0) {
+          const shot = this.ball.isShot
           this.ball.velocity.x -= 2 * dot * nx
           this.ball.velocity.z -= 2 * dot * nz
-          this.ball.velocity.x *= 0.62
-          this.ball.velocity.z *= 0.62
-          this.ball.velocity.y = Math.max(this.ball.velocity.y, 1.2)
+          // A struck shot keeps most of its power, a pass loses a lot.
+          this.ball.velocity.x *= shot ? 0.9 : 0.62
+          this.ball.velocity.z *= shot ? 0.9 : 0.62
+          this.ball.velocity.y = Math.max(this.ball.velocity.y, shot ? 0.6 : 1.2)
           this.ball.position.x += nx * 0.18
           this.ball.position.z += nz * 0.18
           this.ball.lastTouchPlayer = player
@@ -1404,8 +1810,13 @@ export class MatchEngine {
       const dist = Math.hypot(dx, dz)
       const ownGoalZ = keeper.team === 0 ? -PITCH.halfLength : PITCH.halfLength
       const headingToGoal = Math.sign(this.ball.velocity.z) === Math.sign(ownGoalZ) || Math.abs(this.ball.position.z - ownGoalZ) < 17
-      if (dist < 1.55 && this.ball.position.y < 2.65 && headingToGoal) {
-        const saveChance = clamp(0.41 + this.difficulty.keeper * 0.42 - (speed / 40) * 0.12, 0.28, 0.88)
+      const reach = clamp(1.5 - (speed - 24) * 0.028, 0.78, 1.5)
+      if (dist < reach && this.ball.position.y < 2.65 && headingToGoal) {
+        if (this.ball.keeperTouched) continue
+        // The keeper only gets one attempt per shot, never a roll per frame.
+        this.ball.keeperTouched = true
+        const closeRange = Math.abs(this.ball.position.z - ownGoalZ) < 9 ? 0.14 : 0
+        const saveChance = clamp(0.42 + this.difficulty.keeper * 0.36 - (speed / 40) * 0.2 - closeRange, 0.2, 0.78)
         if (Math.random() < saveChance) {
           const dirOut = keeper.team === 0 ? 1 : -1
           this.ball.velocity.set(randomRange(-7, 7), randomRange(2.5, 5.8), dirOut * randomRange(8, 13))
@@ -1485,10 +1896,15 @@ export class MatchEngine {
     if (this.phase !== 'playing') return
     const scorerPlayer = this.ball.lastTouchPlayer
     const ownGoal = scorerPlayer ? scorerPlayer.team !== scoringTeam : false
+    const passer = this.ball.lastPassPlayer
+    const assistPlayer = !ownGoal && passer && passer !== scorerPlayer && passer.team === scoringTeam ? passer : null
     this.score[scoringTeam] += 1
     this.scorers.push({
       team: scoringTeam,
       name: ownGoal ? `${scorerPlayer.profile.name} (OG)` : scorerPlayer?.profile.name || 'Unknown',
+      assist: assistPlayer ? assistPlayer.profile.name : null,
+      scorerId: scorerPlayer?.id || null,
+      assistId: assistPlayer?.id || null,
       minute: Math.floor((this.elapsed / this.totalDuration) * 90) + 1,
       ownGoal
     })
@@ -1597,10 +2013,11 @@ export class MatchEngine {
     const dir = teamIndex === 0 ? 1 : -1
     const opponent = this.teams[1 - teamIndex]
     const defenders = opponent.players
-      .filter((player) => player.active)
+      .filter((player) => player.active && !player.isGK)
       .map((player) => ({ player, progress: player.position.z * dir }))
       .sort((a, b) => b.progress - a.progress)
     if (defenders.length < 2) return
+    // The offside line is the second deepest defender, the keeper excluded.
     const offsideLine = defenders[1].progress
     const ballProgress = this.ball.position.z * dir
     for (const player of this.teams[teamIndex].players) {
@@ -1614,6 +2031,114 @@ export class MatchEngine {
 
   clearOffsideFlags() {
     this.offsideFlags.clear()
+  }
+
+  updateKickoffLock(dt) {
+    const lock = this.kickoff
+    if (!lock || !lock.active) return
+    if (this.phase !== 'playing') return
+    lock.timer -= dt
+
+    const taker = this.teams[lock.team]?.players.find((player) => player.id === lock.takerId)
+    const owner = this.ball.owner
+
+    // Only the kick-off taker may play the ball, and the opponents must hold
+    // their shape outside the centre circle until the ball is in play.
+    if (owner && owner.team === lock.team && owner.id !== lock.takerId) {
+      this.endKickoffLock()
+      this.emit('commentary', 'Kick-off offence. The referee blows up.')
+      this.awardFreeKick(1 - lock.team, this.ball.position.clone(), false, 'KICK-OFF OFFENCE')
+      return
+    }
+
+    if (owner && owner.team !== lock.team) {
+      this.endKickoffLock()
+      return
+    }
+
+    if (!owner && taker && this.ball.lastTouchPlayer?.id === taker.id && this.ball.lastTouchTeam === lock.team) {
+      this.endKickoffLock()
+      return
+    }
+
+    // Opponents are pushed back outside the centre circle.
+    const radius = PITCH.centerCircle + 0.8
+    for (const player of this.players) {
+      if (!player.active || player.team === lock.team || player.isGK) continue
+      const distance = Math.hypot(player.position.x, player.position.z)
+      if (distance >= radius) continue
+      const angle = distance > 0.01 ? Math.atan2(player.position.x, player.position.z) : 0
+      const push = radius - distance
+      player.position.x += Math.sin(angle) * push
+      player.position.z += Math.cos(angle) * push
+    }
+
+    if (lock.timer <= 0) {
+      this.endKickoffLock()
+      this.emit('commentary', 'Kick-off too slow. The ball is handed to the opposition.')
+      this.awardFreeKick(1 - lock.team, new THREE.Vector3(0, 0, 0), false, 'KICK-OFF TAKEN')
+    }
+  }
+
+  playKickoffTo(player) {
+    const dir = player.team === 0 ? 1 : -1
+    const team = this.teams[player.team]
+    const mates = team.players
+      .filter((mate) => mate.active && mate !== player && !mate.isGK)
+      .map((mate) => ({
+        mate,
+        behind: (player.position.z - mate.position.z) * dir,
+        distance: player.position.distanceTo(mate.position)
+      }))
+      .filter((entry) => entry.behind > 0.5 && entry.distance < 20)
+      .sort((a, b) => a.distance - b.distance)
+    const choice = mates[0]
+    if (!choice) return false
+    const mate = choice.mate
+    const target = mate.position.clone()
+    const toTarget = target.sub(player.position)
+    toTarget.y = 0
+    const distance = toTarget.length()
+    if (distance < 0.5) return false
+    const horizontal = toTarget.normalize()
+    const speed = clamp(9 + distance * 0.15, 9, 14)
+    this.ball.owner = null
+    this.ball.isShot = false
+    this.ball.shotPower = 0
+    this.ball.controlCooldown = 0.3
+    this.ball.lastTouchPlayer = player
+    this.ball.lastTouchTeam = player.team
+    this.ball.lastPassTeam = player.team
+    this.ball.lastPassPlayer = player
+    this.ball.velocity.set(horizontal.x * speed, 0.12, horizontal.z * speed)
+    this.ball.spin.set(0, 0, 0)
+    this.ball.position.y = BALL_RADIUS
+    this.stats.passes[player.team] += 1
+    player.passTimer = 0.3
+    mate.runTarget.copy(target)
+    mate.runTimer = 2.4
+    this.endKickoffLock()
+    this.audio.pass()
+    this.emit('pass', { team: player.team, through: false })
+    return true
+  }
+
+  endKickoffLock() {
+    if (this.kickoff) this.kickoff.active = false
+  }
+
+  nearestOpponentTo(point, teamIndex) {
+    let best = null
+    let bestDistance = Infinity
+    for (const player of this.players) {
+      if (!player.active || player.team !== teamIndex) continue
+      const distance = player.position.distanceTo(point)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = player
+      }
+    }
+    return best
   }
 
   updatePossession(dt) {
@@ -1630,7 +2155,7 @@ export class MatchEngine {
     for (const player of this.players) {
       if (!player.active || player.ballCooldown > 0) continue
       const distance = Math.hypot(this.ball.position.x - player.position.x, this.ball.position.z - player.position.z)
-      const radius = player.isGK ? 1.65 : speed > 18 ? 0.74 : CONTROL_RADIUS
+      const radius = player.isGK ? 1.9 : speed > 16 ? 1.05 : CONTROL_RADIUS + (this.ball.owner === player ? 0.2 : 0)
       if (distance < radius && distance < bestDistance) {
         best = player
         bestDistance = distance
@@ -1642,6 +2167,9 @@ export class MatchEngine {
       return
     }
     this.ball.owner = best
+    this.ball.isShot = false
+    this.ball.shotPower = 0
+    this.ball.keeperTouched = false
     this.ball.lastTouchPlayer = best
     this.ball.lastTouchTeam = best.team
     this.ball.velocity.set(0, 0, 0)
@@ -1719,6 +2247,7 @@ export class MatchEngine {
     team.bench[benchIndex] = outgoing
     team.subsUsed += 1
     player.mesh.visible = true
+    player.mesh.userData.updateNumber?.(benchProfile)
     this.emit('toast', { title: 'SUBSTITUTION', detail: `${benchProfile.name} replaces ${outgoing.name}.`, tone: 'success' })
     this.emit('substitution', { team: teamIndex, player, outgoing, incoming: benchProfile })
     return { ok: true }
@@ -1734,6 +2263,7 @@ export class MatchEngine {
       const player = team.players[i]
       player.slot = slots[i] || slots[slots.length - 1]
       player.role = player.slot.role
+      player.pitchPosition = player.slot.positions?.[0] || player.role
       player.isGK = player.slot.role === 'GK'
     }
     this.emit('toast', { title: 'TACTICS UPDATED', detail: `${team.team.name} switch to ${formationId}.`, tone: 'info' })
@@ -1774,37 +2304,180 @@ export class MatchEngine {
   animatePlayers(dt) {
     for (const player of this.players) {
       if (!player.active) continue
-      const speed = Math.hypot(player.velocity.x, player.velocity.z)
       const data = player.mesh.userData
-      data.phase += dt * (2.2 + speed * 1.85)
-      const swing = Math.sin(data.phase) * Math.min(0.9, speed * 0.15)
-      const idle = Math.sin(data.phase * 0.45) * 0.025
-      data.leftLeg.rotation.x = swing
-      data.rightLeg.rotation.x = -swing
-      data.leftArm.rotation.x = -swing * 0.55
-      data.rightArm.rotation.x = swing * 0.55
-      data.rig.position.y = Math.abs(Math.sin(data.phase)) * Math.min(0.05, speed * 0.006) + idle
-      data.rig.rotation.x = 0
-      data.rig.rotation.z = 0
+      const speed = Math.hypot(player.velocity.x, player.velocity.z)
+      const stride = clamp(speed / 6.6, 0, 1)
+      const moving = speed > 0.28
+      data.phase += dt * (moving ? 3.1 + speed * 1.5 : 1.45)
+
+      const swing = Math.sin(data.phase)
+      const idleSway = Math.sin(data.phase * 0.58 + player.decisionBias) * 0.025
+      let rigX = 0
+      let rigY = Math.sin(data.phase * 0.72) * 0.008
+      let rigZ = 0
+      let leftHipX = idleSway
+      let rightHipX = -idleSway
+      let leftKneeX = 0.06
+      let rightKneeX = 0.06
+      let leftAnkleX = 0
+      let rightAnkleX = 0
+      let leftShoulderX = 0
+      let rightShoulderX = 0
+      let leftShoulderZ = -0.12
+      let rightShoulderZ = 0.12
+      let leftElbowX = -0.16
+      let rightElbowX = -0.16
+
+      if (moving) {
+        const swingAmp = 0.42 + stride * 0.42
+        leftHipX = swing * swingAmp
+        rightHipX = -swing * swingAmp
+        leftKneeX = 0.08 + Math.max(0, -swing) * (0.55 + stride * 0.72)
+        rightKneeX = 0.08 + Math.max(0, swing) * (0.55 + stride * 0.72)
+        leftAnkleX = -leftKneeX * 0.22
+        rightAnkleX = -rightKneeX * 0.22
+        leftShoulderX = -swing * (0.48 + stride * 0.35)
+        rightShoulderX = swing * (0.48 + stride * 0.35)
+        leftElbowX = -0.2 - Math.max(0, swing) * 0.52 * stride
+        rightElbowX = -0.2 - Math.max(0, -swing) * 0.52 * stride
+        rigX = 0.1 * stride + (stride > 0.8 ? 0.055 : 0)
+        rigY += Math.abs(Math.sin(data.phase)) * 0.034 * stride
+      }
+
+      if (this.ball.owner === player) {
+        rigX += 0.075
+        rigY -= 0.012
+      }
+
+      if (player.kickTimer > 0) {
+        const progress = 1 - player.kickTimer / 0.42
+        const kick = Math.sin(Math.min(1, progress * 1.12) * Math.PI)
+        const rightFooted = player.profile.number % 2 === 0
+        if (rightFooted) {
+          rightHipX = -1.38 * kick
+          rightKneeX = 0.42 * (1 - kick)
+          rightAnkleX = 0.18 * kick
+          leftHipX = 0.28 * kick
+          leftKneeX = 0.25 * kick
+        } else {
+          leftHipX = -1.38 * kick
+          leftKneeX = 0.42 * (1 - kick)
+          leftAnkleX = 0.18 * kick
+          rightHipX = 0.28 * kick
+          rightKneeX = 0.25 * kick
+        }
+        leftShoulderX = -0.55 * kick
+        rightShoulderX = 0.65 * kick
+        leftShoulderZ = -0.55 * kick - 0.12
+        rightShoulderZ = 0.55 * kick + 0.12
+        rigX = 0.07 + 0.15 * kick
+        rigY += 0.018 * kick
+      } else if (player.passTimer > 0) {
+        const progress = 1 - player.passTimer / 0.3
+        const kick = Math.sin(Math.min(1, progress * 1.2) * Math.PI)
+        const rightFooted = player.profile.number % 2 === 0
+        if (rightFooted) {
+          rightHipX = -0.92 * kick
+          rightKneeX = 0.22 * (1 - kick)
+        } else {
+          leftHipX = -0.92 * kick
+          leftKneeX = 0.22 * (1 - kick)
+        }
+        rigX = 0.05 + 0.07 * kick
+        leftShoulderX = 0.28 * kick
+        rightShoulderX = -0.28 * kick
+      }
+
       if (player.tackleTimer > 0) {
-        data.rig.rotation.x = -0.7
-        data.rig.position.y = -0.18
+        const force = Math.min(1, player.tackleTimer / 0.32)
+        rigX = -0.35 - force * 0.42
+        rigY = -0.3 * force
+        const rightFooted = player.profile.number % 2 === 0
+        if (rightFooted) {
+          rightHipX = -1.2 * force
+          rightKneeX = 0.12
+          leftHipX = 0.55 * force
+          leftKneeX = 1.35 * force
+        } else {
+          leftHipX = -1.2 * force
+          leftKneeX = 0.12
+          rightHipX = 0.55 * force
+          rightKneeX = 1.35 * force
+        }
+        leftShoulderZ = -0.7 * force - 0.12
+        rightShoulderZ = 0.7 * force + 0.12
+        leftElbowX = -0.45
+        rightElbowX = -0.45
       }
-      if (player.diveTimer > 0 && player.isGK) {
-        data.rig.rotation.z = (data.dive || player.diveDirection || 1) * 0.92
-        data.rig.position.y = 0.18
-      } else if (player.isGK) {
-        data.rig.rotation.z *= 0.82
-        data.dive *= 0.82
+
+      if (player.downTimer > 0) {
+        const progress = 1 - Math.min(1, player.downTimer / 1.05)
+        const fallen = Math.min(1, progress * 2.5)
+        const recovering = progress > 0.7 ? (progress - 0.7) / 0.3 : 0
+        const amount = fallen * (1 - recovering)
+        rigX = -1.05 * amount
+        rigY = 0.08 * amount
+        leftHipX = 0.38 * amount
+        rightHipX = 0.62 * amount
+        leftKneeX = 0.68 * amount
+        rightKneeX = 0.9 * amount
+        leftShoulderX = -0.45 * amount
+        rightShoulderX = -0.65 * amount
+        leftShoulderZ = -0.5 * amount - 0.12
+        rightShoulderZ = 0.5 * amount + 0.12
       }
+
+      if (player.isGK) {
+        const diving = player.diveTimer > 0
+        if (diving) {
+          const dive = Math.min(1, player.diveTimer / 0.46)
+          const direction = data.dive || player.diveDirection || 1
+          rigZ = direction * 1.16 * dive
+          rigY += 0.2 * dive
+          leftShoulderZ = direction * 1.05
+          rightShoulderZ = direction * 1.05
+          leftElbowX = -0.08
+          rightElbowX = -0.08
+          leftHipX = direction * 0.35
+          rightHipX = direction * 0.35
+          leftKneeX = 0.35
+          rightKneeX = 0.35
+        } else {
+          data.dive *= 0.78
+          rigZ *= 0.78
+          rigY -= 0.035
+          leftKneeX = 0.28
+          rightKneeX = 0.28
+          leftShoulderZ = -0.32
+          rightShoulderZ = 0.32
+          leftElbowX = -0.38
+          rightElbowX = -0.38
+        }
+      }
+
+      data.leftHip.rotation.x = leftHipX
+      data.rightHip.rotation.x = rightHipX
+      data.leftKnee.rotation.x = leftKneeX
+      data.rightKnee.rotation.x = rightKneeX
+      data.leftAnkle.rotation.x = leftAnkleX
+      data.rightAnkle.rotation.x = rightAnkleX
+      data.leftShoulder.rotation.x = leftShoulderX
+      data.rightShoulder.rotation.x = rightShoulderX
+      data.leftShoulder.rotation.z = leftShoulderZ
+      data.rightShoulder.rotation.z = rightShoulderZ
+      data.leftElbow.rotation.x = leftElbowX
+      data.rightElbow.rotation.x = rightElbowX
+      data.rig.rotation.x = rigX
+      data.rig.rotation.z = rigZ
+      data.rig.position.y += (rigY - data.rig.position.y) * Math.min(1, dt * 18)
+
       data.ring.visible = this.humans[player.team] && this.teams[player.team].controlledId === player.id && this.phase === 'playing'
       data.arrow.visible = data.ring.visible
       if (data.ring.visible) {
         data.ring.rotation.z += dt * 1.2
         const pulse = 1 + Math.sin(this.elapsed * 5 + player.slotIndex) * 0.06
         data.ring.scale.setScalar(pulse)
-        data.arrow.position.y = 2.72 + Math.sin(this.elapsed * 4) * 0.08
-        data.arrow.visible = true
+        data.arrow.position.y = 2.56 + Math.sin(this.elapsed * 4) * 0.08
       }
       data.shadow.visible = true
     }

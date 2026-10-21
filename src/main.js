@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { DEFAULT_SETTINGS, getTeam } from './data.js'
+import { DEFAULT_SETTINGS, getTeam, PITCH } from './data.js'
 import { StadiumAudio } from './audio.js'
 import { MatchEngine } from './engine.js'
 import { InputController } from './input.js'
@@ -16,6 +16,9 @@ import {
 import { createTournament, getUserMatch, recordUserResult } from './tournament.js'
 import { UIController } from './ui.js'
 import { createWorld } from './world.js'
+import { CRATES, levelFromXp, levelUpReward, matchRewards, rankProgress, rollCrate } from './progression.js'
+import { PLAYER_POOL, buildCustomTeam } from './squad.js'
+import { loadSquad, saveLastRewards, saveSquad } from './storage.js'
 
 const canvas = document.getElementById('scene')
 let renderer
@@ -44,6 +47,7 @@ const audio = new StadiumAudio()
 const settings = loadSettings()
 let profile = loadProfile()
 let tournament = loadTournament()
+let squad = loadSquad()
 let appState = 'menu'
 let currentConfig = null
 let introTimer = null
@@ -91,6 +95,8 @@ function startMatch(config) {
   audio.unlock()
   audio.setVolumes(settings)
   currentConfig = config
+  if (config.homeId === 'myclub') config.homeTeam = buildCustomTeam(squad)
+  if (config.awayId === 'myclub') config.awayTeam = buildCustomTeam(squad)
   engine.setSettings(settings)
   engine.start(config)
   cameraSnap = true
@@ -123,17 +129,23 @@ function handleFulltime(snapshot) {
   engine.setPaused(true)
   audio.setCrowd(false)
   const mode = currentConfig?.mode || 'quick'
+  const goalsFor = snapshot.score[0]
+  const goalsAgainst = snapshot.score[1]
   profile.matches += 1
-  if (snapshot.score[0] > snapshot.score[1]) profile.wins += 1
-  profile.goals += snapshot.score[0]
-  saveProfile(profile)
-  ui.setProfile(profile)
+  if (goalsFor > goalsAgainst) {
+    profile.wins += 1
+  } else if (goalsFor === goalsAgainst) {
+    profile.draws += 1
+  } else {
+    profile.losses += 1
+  }
+  profile.goals += goalsFor
 
   let tournamentResult = null
   let canContinueCup = false
   let cupButtonLabel = 'CONTINUE CUP'
   if (mode === 'tournament' && tournament) {
-    tournamentResult = recordUserResult(tournament, snapshot.score[0], snapshot.score[1])
+    tournamentResult = recordUserResult(tournament, goalsFor, goalsAgainst)
     saveTournament(tournament)
     ui.setTournament(tournament)
     canContinueCup = true
@@ -143,14 +155,68 @@ function handleFulltime(snapshot) {
         ? 'VIEW THE BRACKET'
         : 'CONTINUE CUP'
   }
+
+  const rewards = applyMatchRewards({
+    result: goalsFor > goalsAgainst ? 'win' : goalsFor === goalsAgainst ? 'draw' : 'loss',
+    goalsFor,
+    goalsAgainst,
+    tournamentRound: Boolean(tournamentResult?.advanced)
+  })
+  applyPlayerStats(snapshot)
+  saveProfile(profile)
+  saveLastRewards(rewards)
+  ui.setProfile(profile)
+  ui.setSquad(squad)
+
   ui.showResults({
     snapshot,
     mode,
     tournamentResult,
     canContinueCup,
     cupButtonLabel,
+    rewards,
     allowRematch: mode !== 'tournament'
   })
+}
+
+function applyMatchRewards({ result, goalsFor, goalsAgainst, tournamentRound }) {
+  const earned = matchRewards({ result, goalsFor, goalsAgainst, tournamentRound })
+  const before = levelFromXp(profile.xp || 0)
+  profile.xp += earned.xp
+  profile.coins += earned.coins
+  profile.keys += earned.keys
+  let levelUps = 0
+  const after = levelFromXp(profile.xp || 0)
+  if (after.level > before.level) {
+    levelUps = after.level - before.level
+    for (let level = before.level + 1; level <= after.level; level += 1) {
+      const reward = levelUpReward(level)
+      profile.coins += reward.coins
+      profile.keys += reward.keys
+    }
+  }
+  return { xp: earned.xp, coins: earned.coins, keys: earned.keys, levelUp: levelUps, level: after.level }
+}
+
+function applyPlayerStats(snapshot) {
+  if (!engine) return
+  const keys = engine.getStatKeys()
+  const stats = profile.playerStats || (profile.playerStats = {})
+  const ensure = (key) => {
+    if (!stats[key]) stats[key] = { apps: 0, goals: 0, assists: 0, rating: 0 }
+    return stats[key]
+  }
+  for (const player of engine.teams[0]?.players || []) {
+    const key = keys[player.id]
+    if (key) ensure(key).apps += 1
+  }
+  for (const scorer of snapshot.scorers || []) {
+    if (scorer.ownGoal || scorer.team !== 0) continue
+    const goalKey = keys[scorer.scorerId]
+    if (goalKey) ensure(goalKey).goals += 1
+    const assistKey = keys[scorer.assistId]
+    if (assistKey) ensure(assistKey).assists += 1
+  }
 }
 
 function addShake(amount) {
@@ -296,13 +362,15 @@ const actions = {
   onResetData() {
     resetAllData()
     tournament = null
-    profile = { matches: 0, wins: 0, goals: 0, bestPractice: 0 }
+    profile = loadProfile()
+    squad = loadSquad()
     Object.assign(settings, DEFAULT_SETTINGS)
     saveSettings(settings)
     audio.setVolumes(settings)
     engine?.setSettings(settings)
     ui.setTournament(null)
     ui.setProfile(profile)
+    ui.setSquad(squad)
   },
   onUiSound(type) {
     audio.unlock()
@@ -310,7 +378,65 @@ const actions = {
     else audio.ui()
   },
   onSettingsSaved() {},
-  onMenuRoute() {}
+  onMenuRoute() {},
+  onShowCareer() {
+    appState = 'menu'
+    ui.showCareer()
+  },
+  onOpenCrate(crateId) {
+    const crate = CRATES.find((entry) => entry.id === crateId) || CRATES[0]
+    if (profile.keys < crate.keyCost) {
+      ui.showToast({ title: 'NO KEY', detail: 'Keys drop from level ups and cup wins.', tone: 'warn' })
+      return null
+    }
+    if (profile.coins < crate.cost) {
+      ui.showToast({ title: 'NOT ENOUGH COINS', detail: 'Win matches or level up to earn more.', tone: 'warn' })
+      return null
+    }
+    profile.keys -= crate.keyCost
+    profile.coins -= crate.cost
+    profile.crateOpens += 1
+    const pool = PLAYER_POOL.filter((player) => !(squad.unlocked || []).includes(player.id))
+    const reward = rollCrate(crate.id, Math.random, pool)
+    if (reward.type === 'coins') profile.coins += reward.amount
+    if (reward.type === 'xp') profile.xp += reward.amount
+    if (reward.type === 'boost') {
+      const keys = ['finishing', 'pace', 'passing', 'defending']
+      const key = keys[Math.floor(Math.random() * keys.length)]
+      const current = profile.boosts?.[key] || 0
+      if (current < 5) {
+        profile.boosts = { ...profile.boosts, [key]: current + 1 }
+        squad.boosts = { ...squad.boosts, [key]: current + 1 }
+      }
+    }
+    if (reward.type === 'card' && reward.card) {
+      squad.unlocked = [...new Set([...(squad.unlocked || []), reward.card.id])]
+      reward.detail = `${reward.card.position} · ${reward.card.overall} OVR — added to My Club`
+    }
+    if (reward.type === 'kit') {
+      const kits = ['volt', 'flare', 'gold', 'violet', 'ice', 'ember']
+      const next = kits[(kits.indexOf(squad.kit) + 1) % kits.length]
+      squad.kit = next
+    }
+    squad.boosts = { ...squad.boosts, ...(profile.boosts || {}) }
+    profile.crateHistory = [
+      { name: reward.title, rarity: reward.rarity, type: reward.type, at: Date.now() },
+      ...(profile.crateHistory || [])
+    ].slice(0, 12)
+    saveProfile(profile)
+    saveSquad(squad)
+    ui.setProfile(profile)
+    ui.setSquad(squad)
+    audio.horn()
+    return reward
+  },
+  onSquadUpdate(nextSquad) {
+    squad = { ...squad, ...nextSquad }
+    profile.boosts = { ...profile.boosts, ...(squad.boosts || {}) }
+    saveSquad(squad)
+    saveProfile(profile)
+    ui.setSquad(squad)
+  }
 }
 
 const engineCallbacks = {
@@ -341,6 +467,10 @@ const engineCallbacks = {
     } else if (type === 'targetHit') {
       ui.targetFlash()
       addShake(0.35)
+      profile.xp = (profile.xp || 0) + 14
+      profile.coins = (profile.coins || 0) + 7
+      saveProfile(profile)
+      ui.setProfile(profile)
     } else if (type === 'practiceGoal') {
       ui.updateHud(payload.snapshot)
     } else if (type === 'halftime') {
@@ -359,6 +489,7 @@ input.bindTouch(document.getElementById('touchControls'), document.getElementByI
 input.onActivity = () => audio.unlock()
 ui.setTournament(tournament)
 ui.setProfile(profile)
+ui.setSquad(squad)
 audio.setVolumes(settings)
 ui.showLoading('Building the stadium…')
 
@@ -403,34 +534,65 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && appState === 'match') actions.onPause()
 })
 
+const cameraFocus = new THREE.Vector3()
 const cameraLook = new THREE.Vector3()
 const desiredCamera = new THREE.Vector3()
-const idleCamera = new THREE.Vector3()
+const desiredLook = new THREE.Vector3()
 
 function updateCamera(dt) {
   const camera = world.camera
   if (!engine?.active || appState === 'menu') {
     world.setMenuCamera(window.innerWidth / window.innerHeight)
+    cameraSnap = true
     return
   }
   const ball = engine.ball.position
-  const distance = settings.cameraDistance
-  const targetZ = ball.z + 6.5
-  const desiredZ = clamp(ball.z - 20.5 * distance, -40, 40)
-  desiredCamera.set(8.5 + ball.x * 0.18, 25.5 + Math.abs(ball.z) * 0.035, desiredZ)
+  const home = engine.getControlledRaw(0)
+  const away = engine.getControlledRaw(1)
+  cameraFocus.set(ball.x, 0, ball.z)
+  if (home) {
+    const separation = home.position.distanceTo(ball)
+    cameraFocus.lerp(home.position, clamp(0.2 + separation / 65, 0.2, 0.38))
+  }
+  if (away && engine.humans?.[1]) cameraFocus.lerp(away.position, 0.1)
+  cameraFocus.x = clamp(cameraFocus.x, -PITCH.halfWidth * 0.9, PITCH.halfWidth * 0.9)
+  cameraFocus.z = clamp(cameraFocus.z, -PITCH.halfLength * 0.94, PITCH.halfLength * 0.94)
+
+  const ballVelocity = engine.ball.velocity
+  const speed = Math.hypot(ballVelocity.x, ballVelocity.z)
+  const widthFactor = Math.abs(ball.x) / PITCH.halfWidth
+  const endFactor = Math.abs(ball.z) / PITCH.halfLength
+  const dynamicZoom = Math.min(1.6, (speed / 24) * 1.15 + widthFactor * 1.05 + endFactor * 0.45)
+  const distance = (15.1 + dynamicZoom) * settings.cameraDistance
+  const height = 10.35 + distance * 0.075 + widthFactor * 0.7
+  const shoulder = 2.15
+  desiredCamera.set(
+    cameraFocus.x * 0.64 + shoulder,
+    height,
+    cameraFocus.z - distance
+  )
+
+  const leadZ = clamp(ballVelocity.z * 0.14, -2.1, 3.1)
+  desiredLook.set(
+    cameraFocus.x * 0.72,
+    1.18,
+    cameraFocus.z + 4.35 + leadZ
+  )
+
   if (cameraSnap) {
     camera.position.copy(desiredCamera)
+    cameraLook.copy(desiredLook)
     cameraSnap = false
   } else {
-    const smoothing = 1 - Math.exp(-3.3 * dt)
-    camera.position.lerp(desiredCamera, smoothing)
+    camera.position.lerp(desiredCamera, 1 - Math.exp(-5.2 * dt))
+    cameraLook.lerp(desiredLook, 1 - Math.exp(-7.5 * dt))
   }
-  cameraLook.set(ball.x * 0.18, 0.8, targetZ)
   camera.lookAt(cameraLook)
   if (shake > 0.01) {
-    camera.position.x += (Math.random() - 0.5) * shake * 0.55
-    camera.position.y += (Math.random() - 0.5) * shake * 0.38
-    camera.position.z += (Math.random() - 0.5) * shake * 0.5
+    const amount = Math.min(shake, 1.2)
+    camera.position.x += (Math.random() - 0.5) * amount * 0.34
+    camera.position.y += (Math.random() - 0.5) * amount * 0.24
+    camera.position.z += (Math.random() - 0.5) * amount * 0.3
     camera.lookAt(cameraLook)
     shake = Math.max(0, shake - dt * 2.1)
   }
@@ -465,6 +627,10 @@ if (import.meta.env.DEV) {
     get appState() { return appState },
     get tournament() { return tournament },
     get settings() { return settings },
+    get world() { return world },
+    get input() { return input },
+    get profile() { return profile },
+    get squad() { return squad },
     actions
   }
 }

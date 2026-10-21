@@ -36,6 +36,7 @@
               </div>
               <div class="header-actions">
                 <span class="season-chip">SEASON 01</span>
+                <button class="ghost-button" id="careerButton" type="button">CAREER</button>
                 <button class="ghost-button" id="menuHelpButton" type="button">HOW TO PLAY</button>
                 <button class="icon-button" id="menuSettingsButton" type="button" aria-label="Open settings">
                   <span></span><span></span><span></span>
@@ -53,6 +54,7 @@
                   <span>YOUR RECORD</span>
                   <strong id="profileRecord">0 WINS · 0 GOALS</strong>
                   <span id="profileBest">PRACTICE BEST 0</span>
+                  <span id="profileRank">ROOKIE · LEVEL 1</span>
                 </div>
               </div>
 
@@ -182,6 +184,83 @@
           </div>
         </section>
 
+        <section id="careerScreen" class="screen flow-screen career-screen" aria-label="Career hub">
+          <div class="flow-shell career-shell">
+            <header class="flow-header">
+              <button class="back-button" data-back="menu" type="button">← BACK</button>
+              <div class="flow-title"><p class="eyebrow">CAREER</p><h2 id="careerHeading">RANK &amp; REWARDS</h2></div>
+              <div class="career-wallet">
+                <span class="wallet-chip coins">◈ <b id="careerCoins">0</b></span>
+                <span class="wallet-chip keys">✦ <b id="careerKeys">0</b></span>
+              </div>
+            </header>
+
+            <nav class="career-tabs" id="careerTabs" aria-label="Career sections">
+              <button class="career-tab active" data-career-tab="rank" type="button">RANK</button>
+              <button class="career-tab" data-career-tab="crates" type="button">CRATES</button>
+              <button class="career-tab" data-career-tab="squad" type="button">MY CLUB</button>
+              <button class="career-tab" data-career-tab="stats" type="button">PLAYER STATS</button>
+            </nav>
+
+            <div class="career-panels">
+              <section class="career-panel active" data-career-panel="rank">
+                <div class="career-rank-grid">
+                  <article class="rank-card" id="rankCard"></article>
+                  <article class="reward-card">
+                    <h3>REWARD TRACK</h3>
+                    <div class="reward-track" id="rewardTrack"></div>
+                    <p class="career-note">Every win, goal and cup round adds XP. New divisions pay out coins, keys and attribute boosts for My Club.</p>
+                  </article>
+                </div>
+              </section>
+
+              <section class="career-panel" data-career-panel="crates">
+                <div class="crate-grid" id="crateGrid"></div>
+                <div class="crate-reveal" id="crateReveal">
+                  <p class="eyebrow">LAST DROP</p>
+                  <h3 id="crateRevealTitle">OPEN A CRATE</h3>
+                  <p id="crateRevealDetail">Crates drop coins, XP, player cards, kit colours and permanent attribute boosts.</p>
+                </div>
+                <div class="crate-history" id="crateHistory"></div>
+              </section>
+
+              <section class="career-panel" data-career-panel="squad">
+                <div class="squad-layout">
+                  <div class="squad-pitch">
+                    <div class="squad-head">
+                      <div>
+                        <label class="micro-label" for="squadNameInput">CLUB NAME</label>
+                        <input id="squadNameInput" class="squad-name-input" type="text" maxlength="18" />
+                      </div>
+                      <div class="squad-rating"><span>TEAM RATING</span><strong id="squadRating">0</strong></div>
+                    </div>
+                    <div class="squad-slots" id="squadSlots"></div>
+                    <div class="squad-controls">
+                      <div class="segmented wide" id="squadFormations"></div>
+                      <div class="kit-picker" id="kitPicker"></div>
+                    </div>
+                  </div>
+                  <div class="squad-pool">
+                    <div class="squad-pool-head">
+                      <h3>AVAILABLE PLAYERS</h3>
+                      <span id="squadPoolHint">Tap a slot, then a player</span>
+                    </div>
+                    <div class="player-pool" id="playerPool"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="career-panel" data-career-panel="stats">
+                <div class="stats-head">
+                  <label class="micro-label" for="statsClubSelect">CLUB</label>
+                  <select id="statsClubSelect" aria-label="Choose club"></select>
+                </div>
+                <div class="stat-table" id="statTable"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
         <section id="helpScreen" class="screen modal-screen" aria-label="Controls and rules">
           <div class="modal-shell help-shell">
             <header class="modal-header">
@@ -221,6 +300,8 @@
                   <li>Offside is implemented and can be toggled in Settings. The HUD always shows it.</li>
                   <li>Fouls can produce free kicks and penalties. Yellow cards are tracked.</li>
                   <li>Three substitutions per match. Stamina drains while sprinting.</li>
+                  <li>Movement is camera relative: right is always right on screen, forward is always up the pitch.</li>
+                  <li>Every match earns XP and coins. Open the Career hub to climb divisions, open crates and build My Club.</li>
                   <li>No online play. Local multiplayer and AI are the complete offering.</li>
                 </ul>
               </div>
@@ -369,6 +450,8 @@
               <button class="back-button inline" data-pause-back type="button">← BACK</button>
               <h3>FORMATION</h3>
               <div class="formation-grid" id="formationGrid"></div>
+              <h3>TEAM SHAPE</h3>
+              <div class="shape-pitch" id="shapePitch"></div>
               <h3>MENTALITY</h3>
               <div class="segmented wide" id="mentalityOptions">
                 <button data-mentality="defensive" type="button">DEFENSIVE</button>
@@ -423,6 +506,7 @@
               <div><span class="crest" id="resultsAwayCrest">COM</span><strong id="resultsAwayName">COMETS</strong></div>
             </div>
             <p id="resultsVerdict" class="results-verdict">A hard-fought night under the lights.</p>
+            <div class="results-rewards" id="resultsRewards"></div>
             <div class="results-columns">
               <div><span class="micro-label">SCORERS</span><ul id="resultsScorers" class="scorer-list"></ul></div>
               <div class="stat-bars compact" id="resultsStats"></div>
