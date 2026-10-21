@@ -69,7 +69,7 @@ An alternate keyboard scheme (`J` / `K` / `L` / `U` / `H`) is available in Setti
 | Switch player | `/` |
 | Slide tackle | `\` |
 
-Gamepads use the left stick plus A/B/X/Y, LB/RB, and the shoulder buttons. On phones and tablets, use the left virtual stick and the action buttons on the right. Matches are designed for landscape on small devices; the menu works in portrait.
+Gamepads use the left stick plus A/B/X/Y, LB/RB, and the shoulder buttons. On phones and tablets, use the left virtual stick and the action buttons on the right. Movement is camera-relative: pushing the stick right moves your player right on screen, with an analog dead zone and smooth acceleration. Matches are designed for landscape on small devices; the menu works in portrait.
 
 Press `Escape` or `P` to pause. Pause for tactics, formations, mentality, substitutions, controls and settings. Audio, camera distance, screen shake, crowd, offside and saved data can be changed in Settings.
 
@@ -79,6 +79,7 @@ Press `Escape` or `P` to pause. Pause for tactics, formations, mentality, substi
 - Role-based team AI with pressing, passing, through balls, shooting, formations and mentalities.
 - Eight fictional clubs, generated squads, team crests and a neon night-stadium built procedurally.
 - Saved local profile, settings and Aurora Cup bracket.
+- Close, low, adaptive follow camera with camera-relative movement, plus detailed player models with numbered kits and run, kick, tackle, stumble and goalkeeper animations.
 - Responsive HUD, touch controls, gamepad support, local 2P, pause/tactics/substitution screens, match intro, goal presentation and full-time statistics.
 
 ## Tech

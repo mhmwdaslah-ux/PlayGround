@@ -39,6 +39,11 @@ function roleForward(role) {
   return 0
 }
 
+function dampAngle(current, target, speed, dt) {
+  const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current))
+  return current + delta * (1 - Math.exp(-speed * dt))
+}
+
 function teamIndexControlled(engine, player) {
   const team = engine.teams[player.team]
   return Boolean(team && team.controlledId === player.id)
@@ -95,6 +100,10 @@ export class MatchEngine {
     this._tmpA = new THREE.Vector3()
     this._tmpB = new THREE.Vector3()
     this._tmpC = new THREE.Vector3()
+    this._up = new THREE.Vector3(0, 1, 0)
+    this._camForward = new THREE.Vector3()
+    this._camRight = new THREE.Vector3()
+    this._moveDir = new THREE.Vector3()
     this.hudAccumulator = 0
   }
 
@@ -194,6 +203,9 @@ export class MatchEngine {
         tackleTimer: 0,
         diveTimer: 0,
         diveDirection: 0,
+        kickTimer: 0,
+        kickSide: 1,
+        stumbleTimer: 0,
         mesh: null
       }
       player.mesh = createPlayerModel(team, profile, isGK)
@@ -281,7 +293,10 @@ export class MatchEngine {
       this.playersGroup.remove(child)
       child.traverse((node) => {
         if (node.geometry) node.geometry.dispose()
-        if (node.material) node.material.dispose()
+        if (node.material?.userData?.ephemeral) {
+          if (node.material.map) node.material.map.dispose()
+          node.material.dispose()
+        }
       })
     }
     this.players = []
@@ -405,10 +420,9 @@ export class MatchEngine {
     for (const player of other.players) {
       if (!player.active) continue
       const dir = player.team === 0 ? 1 : -1
-      if (player.position.z * dir > -1.2) {
-        player.position.z = -1.8 * dir
-        player.mesh.position.copy(player.position)
-      }
+      if (dir > 0) player.position.z = Math.min(player.position.z, -9.4)
+      else player.position.z = Math.max(player.position.z, 9.4)
+      player.mesh.position.copy(player.position)
     }
     this.offsideFlags.clear()
     this.ball.lastPassTeam = null
@@ -596,7 +610,24 @@ export class MatchEngine {
       player.ballCooldown = Math.max(0, player.ballCooldown - dt)
       player.tackleTimer = Math.max(0, player.tackleTimer - dt)
       player.diveTimer = Math.max(0, player.diveTimer - dt * 2.4)
+      player.kickTimer = Math.max(0, player.kickTimer - dt)
+      player.stumbleTimer = Math.max(0, player.stumbleTimer - dt)
     }
+  }
+
+  getMoveDirection(inputX, inputZ, target = this._moveDir) {
+    const camera = this.world.camera
+    this._camForward.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    this._camForward.y = 0
+    if (this._camForward.lengthSq() < 0.0001) this._camForward.set(0, 0, 1)
+    else this._camForward.normalize()
+    this._camRight.crossVectors(this._camForward, this._up).normalize()
+    target.set(0, 0, 0)
+    target.addScaledVector(this._camRight, inputX)
+    target.addScaledVector(this._camForward, inputZ)
+    const length = target.length()
+    if (length > 1) target.divideScalar(length)
+    return target
   }
 
   handleHumanTeam(teamIndex, dt) {
@@ -611,9 +642,17 @@ export class MatchEngine {
     if (!player) return
     const input = this.input.getState(teamIndex, this.settings.scheme)
     const state = this.humanStates[teamIndex]
-    const dir = new THREE.Vector3(input.x, 0, input.z)
-    if (dir.lengthSq() > 0.001) dir.normalize()
+    const dir = this.getMoveDirection(input.x, input.z)
+    if (dir.lengthSq() > 1) dir.normalize()
     const sprint = input.down.sprint && player.stamina > 2
+
+    if (player.stumbleTimer > 0) {
+      state.charging = false
+      state.chargeTime = 0
+      state.power = 0
+      this.applyMovement(player, 0, 0, false, dt)
+      return
+    }
 
     if (state.charging) {
       if (this.ball.owner !== player) {
@@ -659,14 +698,19 @@ export class MatchEngine {
     const dirLength = Math.hypot(dirX, dirZ)
     const staminaFactor = player.stamina > 18 ? 1 : 0.76 + player.stamina * 0.012
     const sprintFactor = sprint ? 1.34 : 1
-    const maxSpeed = player.maxSpeed * sprintFactor * staminaFactor
+    const control = player.stumbleTimer > 0 ? 0.12 : 1
+    const maxSpeed = player.maxSpeed * sprintFactor * staminaFactor * control
     if (dirLength > 0.02) {
-      const targetX = (dirX / dirLength) * maxSpeed
-      const targetZ = (dirZ / dirLength) * maxSpeed
+      const analog = Math.min(1, dirLength)
+      const targetX = (dirX / dirLength) * maxSpeed * analog
+      const targetZ = (dirZ / dirLength) * maxSpeed * analog
       const acceleration = 1 - Math.exp(-(sprint ? 9 : 13) * dt)
       player.velocity.x += (targetX - player.velocity.x) * acceleration
       player.velocity.z += (targetZ - player.velocity.z) * acceleration
-      player.facing = Math.atan2(dirX, dirZ)
+      if (player.stumbleTimer <= 0) {
+        const desiredFacing = Math.atan2(dirX, dirZ)
+        player.facing = dampAngle(player.facing, desiredFacing, sprint ? 11 : 9, dt)
+      }
     } else {
       const decel = 1 - Math.exp(-12 * dt)
       player.velocity.x -= player.velocity.x * decel
@@ -714,12 +758,21 @@ export class MatchEngine {
         }
       }
     }
+    for (const player of this.players) {
+      if (!player.active) continue
+      player.position.x = clamp(player.position.x, -fieldClampX, fieldClampX)
+      player.position.z = clamp(player.position.z, -fieldClampZ, fieldClampZ)
+    }
   }
 
   updateAI(dt) {
     for (const player of this.players) {
       if (!player.active) continue
       if (this.humans[player.team] && player.id === this.teams[player.team].controlledId) continue
+      if (player.stumbleTimer > 0) {
+        this.applyMovement(player, 0, 0, false, dt)
+        continue
+      }
       if (player.isGK) {
         this.updateGoalkeeper(player, dt)
         continue
@@ -757,14 +810,22 @@ export class MatchEngine {
         }
       } else if (owner.team === player.team) {
         const goalZ = dir * PITCH.halfLength
-        if (player.role === 'FW') {
+        const ball = this.ball.position
+        if (isSecond) {
+          const side = player.slot.x >= 0 ? 1 : -1
+          target.set(
+            clamp(ball.x + side * (5.5 + Math.abs(player.slot.x) * 4), -30, 30),
+            0,
+            clamp(ball.z - dir * (4.5 + player.slot.depth * 5), -49, 49)
+          )
+        } else if (player.role === 'FW') {
           target.z += dir * (5.5 + Math.sin(this.elapsed * 0.6 + player.slotIndex) * 2.2)
           target.x += Math.sin(this.elapsed * 0.4 + player.slotIndex) * 2.8
         } else if (player.role === 'MF') {
           target.z += dir * 2.5
         }
-        if (player.position.distanceTo(this.ball.position) < 32 && player.position.z * dir > this.ball.position.z * dir - 4) {
-          target.x += (this.ball.position.x - target.x) * 0.08
+        if (!isSecond && player.position.distanceTo(ball) < 32 && player.position.z * dir > ball.z * dir - 4) {
+          target.x += (ball.x - target.x) * 0.08
         }
         target.z = clamp(target.z, -goalZ * 0.96, Math.abs(goalZ) * 0.96)
       }
@@ -1033,6 +1094,8 @@ export class MatchEngine {
     this.ball.spin.set(horizontal.z * 8, horizontal.x * 5, 0)
     this.stats.passes[team] += 1
     player.decisionTimer = randomRange(0.5, 1.1)
+    player.kickTimer = 0.26
+    player.kickSide = Math.random() < 0.5 ? -1 : 1
     this.audio.pass()
     this.emit('pass', { team, through })
   }
@@ -1083,6 +1146,8 @@ export class MatchEngine {
       this.stats.onTarget[team] += 1
     }
     this.lastShot = { team, time: this.elapsed, power }
+    player.kickTimer = 0.3
+    player.kickSide = Math.random() < 0.5 ? -1 : 1
     this.audio.kick(0.68 + power * 0.34)
     this.emit('shot', { team, power })
     if (this.penaltyKick && this.penaltyKick.taker === player) this.penaltyKick = null
@@ -1117,6 +1182,9 @@ export class MatchEngine {
       this.stats.fouls[player.team] += 1
       this.audio.whistle()
       const penalty = Math.abs(target.position.z - targetOwnGoalZ) < PITCH.penaltyDepth && Math.abs(target.position.x) < PITCH.penaltyWidth / 2
+      target.stumbleTimer = penalty ? 0.8 : 0.62
+      target.stumbleDuration = target.stumbleTimer
+      target.velocity.multiplyScalar(0.35)
       this.emit('foul', { team: target.team, offender: player, penalty })
       this.emit('commentary', penalty ? 'The referee points to the spot. A huge moment.' : 'A crunching challenge. Free kick.')
       if (Math.random() < 0.22) {
@@ -1776,35 +1844,131 @@ export class MatchEngine {
       if (!player.active) continue
       const speed = Math.hypot(player.velocity.x, player.velocity.z)
       const data = player.mesh.userData
-      data.phase += dt * (2.2 + speed * 1.85)
-      const swing = Math.sin(data.phase) * Math.min(0.9, speed * 0.15)
-      const idle = Math.sin(data.phase * 0.45) * 0.025
+      const speedNorm = clamp(speed / 7.2, 0, 1)
+      const moving = speed > 0.4 && player.stumbleTimer <= 0
+      const owner = this.ball.owner === player
+      data.phase += dt * (moving ? 7.4 + speed * 1.75 : (player.isGK ? 2.1 : 2.6))
+
+      const stride = moving ? 0.2 + speedNorm * 0.92 : 0
+      const swing = Math.sin(data.phase) * stride
+      const bend = moving ? 0.16 + speedNorm * 0.7 : 0.05
+      const leftBend = Math.max(0.035, Math.max(0, -Math.sin(data.phase + 0.35)) * bend)
+      const rightBend = Math.max(0.035, Math.max(0, Math.sin(data.phase + 0.35)) * bend)
+      const armSwing = swing * (moving ? 0.82 : 0)
+
       data.leftLeg.rotation.x = swing
       data.rightLeg.rotation.x = -swing
-      data.leftArm.rotation.x = -swing * 0.55
-      data.rightArm.rotation.x = swing * 0.55
-      data.rig.position.y = Math.abs(Math.sin(data.phase)) * Math.min(0.05, speed * 0.006) + idle
-      data.rig.rotation.x = 0
-      data.rig.rotation.z = 0
-      if (player.tackleTimer > 0) {
-        data.rig.rotation.x = -0.7
-        data.rig.position.y = -0.18
+      data.leftKnee.rotation.x = leftBend
+      data.rightKnee.rotation.x = rightBend
+      data.leftArm.rotation.x = -armSwing
+      data.rightArm.rotation.x = armSwing
+      data.leftElbow.rotation.x = -0.12 - Math.max(0, -armSwing) * 0.4
+      data.rightElbow.rotation.x = -0.12 - Math.max(0, armSwing) * 0.4
+      data.leftArm.rotation.z = -0.09 - speedNorm * 0.035
+      data.rightArm.rotation.z = 0.09 + speedNorm * 0.035
+
+      const idleBreath = Math.sin(data.phase * 0.7) * 0.007
+      data.rig.rotation.x = speedNorm * 0.095 + (owner ? 0.035 : 0)
+      data.rig.rotation.z = Math.sin(data.phase * 0.5) * 0.008
+      data.rig.position.y = idleBreath + Math.abs(Math.sin(data.phase)) * (moving ? 0.018 : 0) - (owner ? 0.022 : 0)
+      data.rig.position.x = 0
+
+      if (player.isGK && !moving && player.stumbleTimer <= 0) {
+        data.rig.position.y -= 0.025
+        data.rig.rotation.x += 0.035
+        data.leftArm.rotation.z = -0.3
+        data.rightArm.rotation.z = 0.3
+        data.leftElbow.rotation.x = -0.2
+        data.rightElbow.rotation.x = -0.2
+        data.leftKnee.rotation.x = Math.max(data.leftKnee.rotation.x, 0.12)
+        data.rightKnee.rotation.x = Math.max(data.rightKnee.rotation.x, 0.12)
       }
+
+      if (owner && !player.isGK) {
+        const dribbleSwing = Math.sin(data.phase * 1.15) * 0.18
+        data.leftLeg.rotation.x += dribbleSwing
+        data.rightLeg.rotation.x -= dribbleSwing
+        data.leftArm.rotation.z -= 0.06
+        data.rightArm.rotation.z += 0.06
+      }
+
+      if (player.kickTimer > 0) {
+        const progress = clamp(1 - player.kickTimer / 0.3, 0, 1)
+        const kick = Math.sin(progress * Math.PI)
+        const left = player.kickSide < 0
+        const leg = left ? data.leftLeg : data.rightLeg
+        const knee = left ? data.leftKnee : data.rightKnee
+        leg.rotation.x = -1.38 * kick
+        knee.rotation.x = 0.18 + (1 - kick) * 0.2
+        data.rig.rotation.x += 0.13 * kick
+        data.rig.position.y -= 0.035 * kick
+        if (left) {
+          data.rightArm.rotation.x = -0.5 * kick
+          data.leftArm.rotation.x = 0.55 * kick
+        } else {
+          data.leftArm.rotation.x = -0.5 * kick
+          data.rightArm.rotation.x = 0.55 * kick
+        }
+      }
+
+      if (player.tackleTimer > 0) {
+        const slide = Math.sin(Math.min(1, (1 - player.tackleTimer / 0.32) * 1.6) * Math.PI * 0.5)
+        data.rig.rotation.x = -0.95 * slide
+        data.rig.position.y -= 0.34 * slide
+        data.leftLeg.rotation.x = -0.9 * slide
+        data.rightLeg.rotation.x = -0.5 * slide
+        data.leftKnee.rotation.x = 0.15 + 0.25 * slide
+        data.rightKnee.rotation.x = 0.3 + 0.2 * slide
+        data.leftArm.rotation.x = 0.45 * slide
+        data.rightArm.rotation.x = -0.4 * slide
+        data.leftArm.rotation.z = -0.35 * slide - 0.09
+        data.rightArm.rotation.z = 0.35 * slide + 0.09
+      }
+
+      if (player.stumbleTimer > 0) {
+        const duration = player.stumbleDuration || 0.65
+        const progress = clamp(1 - player.stumbleTimer / duration, 0, 1)
+        const rise = clamp(progress / 0.26, 0, 1)
+        const recovery = clamp((progress - 0.62) / 0.38, 0, 1)
+        const fall = rise * (1 - recovery)
+        data.rig.rotation.x = 1.12 * fall
+        data.rig.rotation.z = Math.sin(progress * Math.PI * 2.2) * 0.16 * fall
+        data.rig.position.y = -0.48 * fall
+        data.leftLeg.rotation.x = -0.35 * fall
+        data.rightLeg.rotation.x = 0.15 * fall
+        data.leftKnee.rotation.x = 0.55 * fall + 0.05
+        data.rightKnee.rotation.x = 0.72 * fall + 0.05
+        data.leftArm.rotation.x = -0.8 * fall
+        data.rightArm.rotation.x = -0.55 * fall
+        data.leftArm.rotation.z = -0.55 * fall - 0.09
+        data.rightArm.rotation.z = 0.5 * fall + 0.09
+      }
+
       if (player.diveTimer > 0 && player.isGK) {
-        data.rig.rotation.z = (data.dive || player.diveDirection || 1) * 0.92
-        data.rig.position.y = 0.18
+        const dive = Math.sin(clamp(player.diveTimer / 0.65, 0, 1) * Math.PI)
+        data.rig.rotation.z = (data.dive || player.diveDirection || 1) * 1.18 * dive
+        data.rig.rotation.x = 0.05
+        data.rig.position.y = -0.28 * dive
+        data.leftArm.rotation.z = -0.5 - dive * 0.7
+        data.rightArm.rotation.z = 0.5 + dive * 0.7
+        data.leftLeg.rotation.x = -0.22 * dive
+        data.rightLeg.rotation.x = -0.08 * dive
       } else if (player.isGK) {
-        data.rig.rotation.z *= 0.82
         data.dive *= 0.82
       }
-      data.ring.visible = this.humans[player.team] && this.teams[player.team].controlledId === player.id && this.phase === 'playing'
-      data.arrow.visible = data.ring.visible
-      if (data.ring.visible) {
+
+      const inFlow = this.phase === 'playing' || this.phase === 'kickoff' || this.phase === 'restart'
+      const active = this.humans[player.team] && this.teams[player.team].controlledId === player.id && inFlow
+      data.ring.visible = active
+      data.ringBack.visible = active
+      data.arrow.visible = active
+      if (active) {
         data.ring.rotation.z += dt * 1.2
-        const pulse = 1 + Math.sin(this.elapsed * 5 + player.slotIndex) * 0.06
+        const pulse = 1 + Math.sin(this.elapsed * 5 + player.slotIndex) * 0.05
         data.ring.scale.setScalar(pulse)
-        data.arrow.position.y = 2.72 + Math.sin(this.elapsed * 4) * 0.08
-        data.arrow.visible = true
+        data.ringBack.scale.setScalar(pulse)
+        data.arrow.position.y = 2.62 + Math.sin(this.elapsed * 4) * 0.06
+        data.arrow.rotation.y += dt * 1.4
       }
       data.shadow.visible = true
     }

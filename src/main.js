@@ -414,23 +414,39 @@ function updateCamera(dt) {
     return
   }
   const ball = engine.ball.position
+  const controlledPlayer = engine.getControlled(0)
+  const player = controlledPlayer?.active ? controlledPlayer.position : null
+  const gap = player ? Math.hypot(player.x - ball.x, player.z - ball.z) : 0
+  const dynamic = clamp((gap - 5) / 22, 0, 1)
   const distance = settings.cameraDistance
-  const targetZ = ball.z + 6.5
-  const desiredZ = clamp(ball.z - 20.5 * distance, -40, 40)
-  desiredCamera.set(8.5 + ball.x * 0.18, 25.5 + Math.abs(ball.z) * 0.035, desiredZ)
+  const focusX = ball.x * 0.62 + (player ? player.x * 0.38 : 0)
+  const focusZ = ball.z * 0.68 + (player ? player.z * 0.32 : ball.z)
+  const lead = clamp(engine.ball.velocity.z * 0.07, -2.2, 2.2)
+  const southness = clamp((-focusZ - 22) / 28, 0, 1)
+  const height = (9.4 + dynamic * 2.2) * (0.95 + distance * 0.05)
+  const back = (12.6 + dynamic * 2.0) * distance
+  desiredCamera.set(
+    clamp(focusX * 0.9 + 1, -30.5, 30.5),
+    height,
+    clamp(focusZ - back, -62, 38)
+  )
   if (cameraSnap) {
     camera.position.copy(desiredCamera)
     cameraSnap = false
   } else {
-    const smoothing = 1 - Math.exp(-3.3 * dt)
+    const smoothing = 1 - Math.exp(-4.4 * dt)
     camera.position.lerp(desiredCamera, smoothing)
   }
-  cameraLook.set(ball.x * 0.18, 0.8, targetZ)
+  cameraLook.set(
+    clamp(focusX * 0.92 + 0.4, -31, 31),
+    0.85,
+    clamp(focusZ + 5.3 + dynamic * 1.8 - southness * 8.5 + lead, -56, 48)
+  )
   camera.lookAt(cameraLook)
   if (shake > 0.01) {
-    camera.position.x += (Math.random() - 0.5) * shake * 0.55
-    camera.position.y += (Math.random() - 0.5) * shake * 0.38
-    camera.position.z += (Math.random() - 0.5) * shake * 0.5
+    camera.position.x += (Math.random() - 0.5) * shake * 0.42
+    camera.position.y += (Math.random() - 0.5) * shake * 0.3
+    camera.position.z += (Math.random() - 0.5) * shake * 0.38
     camera.lookAt(cameraLook)
     shake = Math.max(0, shake - dt * 2.1)
   }

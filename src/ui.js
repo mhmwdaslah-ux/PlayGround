@@ -831,18 +831,19 @@ export class UIController {
   showToast({ title, detail, tone = 'info' }, duration = 2600) {
     const stack = $('toastStack')
     if (!stack) return
+    const inMatch = document.body.classList.contains('in-match')
     const toast = document.createElement('div')
     toast.className = `toast ${tone}`
     toast.innerHTML = `<strong>${title}</strong>${detail ? `<span>${detail}</span>` : ''}`
     stack.appendChild(toast)
-    while (stack.children.length > 3) stack.removeChild(stack.firstChild)
+    while (stack.children.length > (inMatch ? 2 : 3)) stack.removeChild(stack.firstChild)
     const timer = setTimeout(() => {
       toast.classList.add('out')
       setTimeout(() => {
         toast.remove()
         this.toastTimers.delete(timer)
       }, 300)
-    }, duration)
+    }, inMatch ? Math.min(duration, 2200) : duration)
     this.toastTimers.add(timer)
   }
 
@@ -856,7 +857,7 @@ export class UIController {
     void overlay.offsetHeight
     overlay.classList.add('show')
     clearTimeout(this.goalTimer)
-    this.goalTimer = setTimeout(() => overlay.classList.remove('show'), 3300)
+    this.goalTimer = setTimeout(() => overlay.classList.remove('show'), 3000)
   }
 
   targetFlash() {

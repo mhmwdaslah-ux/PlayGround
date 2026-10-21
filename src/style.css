@@ -1726,6 +1726,14 @@ kbd {
   display: block;
 }
 
+.game-hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 46%, transparent 46%, rgba(1, 8, 12, 0.26) 100%);
+  pointer-events: none;
+}
+
 .scoreboard {
   position: absolute;
   top: calc(14px + var(--safe-top));
@@ -2233,6 +2241,32 @@ body.local-two .p2-indicator {
   gap: 6px;
   pointer-events: none;
   width: min(480px, 86vw);
+}
+
+.in-match .toast-stack {
+  top: calc(80px + var(--safe-top));
+  width: min(330px, 52vw);
+  gap: 4px;
+}
+
+.in-match .toast {
+  min-width: 0;
+  padding: 5px 14px 6px;
+  background: rgba(3, 16, 21, 0.8);
+  border-left-width: 2px;
+  border-right-width: 1px;
+  border-top-width: 1px;
+  border-bottom-width: 1px;
+}
+
+.in-match .toast strong {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.in-match .toast span {
+  font-size: 6px;
+  letter-spacing: 0.05em;
 }
 
 .toast {
@@ -3176,6 +3210,11 @@ body.touch.in-match .touch-controls {
 
   .toast-stack {
     top: calc(64px + var(--safe-top));
+  }
+
+  .in-match .toast-stack {
+    top: calc(64px + var(--safe-top));
+    width: min(280px, 62vw);
   }
 
   .touch-actions {

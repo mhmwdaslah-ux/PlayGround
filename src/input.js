@@ -74,6 +74,10 @@ export class InputController {
       this.down.clear()
       this.released.clear()
       this.pressed.clear()
+      this.touch.active = false
+      this.touch.pointerId = null
+      this.touch.x = 0
+      this.touch.z = 0
     })
   }
 
@@ -89,7 +93,7 @@ export class InputController {
         if (!this.touch.actions[action]) this.touch.pressed.add(action)
         this.touch.actions[action] = true
         button.classList.add('is-down')
-        button.setPointerCapture?.(event.pointerId)
+        try { button.setPointerCapture?.(event.pointerId) } catch { /* Synthetic pointers cannot be captured. */ }
       }
       const end = (event) => {
         event.preventDefault()
@@ -106,6 +110,7 @@ export class InputController {
 
     if (!joystick) return
     const radius = 46
+    const deadZone = 0.14
     const updateFromPointer = (event) => {
       const rect = joystick.getBoundingClientRect()
       const cx = rect.left + rect.width / 2
@@ -117,8 +122,15 @@ export class InputController {
         dx = (dx / length) * radius
         dy = (dy / length) * radius
       }
-      this.touch.x = dx / radius
-      this.touch.z = -dy / radius
+      const magnitude = Math.min(1, Math.hypot(dx, dy) / radius)
+      const strength = magnitude <= deadZone ? 0 : (magnitude - deadZone) / (1 - deadZone)
+      if (magnitude > 0.001 && strength > 0) {
+        this.touch.x = (dx / length) * strength
+        this.touch.z = (-dy / length) * strength
+      } else {
+        this.touch.x = 0
+        this.touch.z = 0
+      }
       if (knob) knob.style.transform = `translate(${dx}px, ${dy}px)`
     }
     const start = (event) => {
@@ -127,7 +139,7 @@ export class InputController {
       this.onActivity?.()
       this.touch.active = true
       this.touch.pointerId = event.pointerId
-      joystick.setPointerCapture?.(event.pointerId)
+      try { joystick.setPointerCapture?.(event.pointerId) } catch { /* Synthetic pointers cannot be captured. */ }
       updateFromPointer(event)
       joystick.classList.add('is-active')
     }
@@ -140,6 +152,7 @@ export class InputController {
       this.touch.pointerId = null
       this.touch.x = 0
       this.touch.z = 0
+      this.touch.pressed.clear()
       if (knob) knob.style.transform = 'translate(0px, 0px)'
       joystick.classList.remove('is-active')
     }
