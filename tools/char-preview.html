@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Character preview</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #07141d; overflow: hidden; }
+    canvas { display: block; }
+    #info { position: fixed; left: 8px; top: 8px; color: #9ff; font: 11px monospace; background: rgba(0,0,0,.55); padding: 8px; white-space: pre; z-index: 2; }
+  </style>
+</head>
+<body>
+  <div id="info">loading…</div>
+  <script type="module">
+    import * as THREE from 'three'
+    import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+
+    const FILES = ['Male_Casual', 'Male_LongSleeve', 'Male_Shirt', 'Male_Suit']
+    const info = document.getElementById('info')
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color('#0b2530')
+    const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200)
+    camera.position.set(0, 1.5, 9.5)
+    camera.lookAt(0.6, 1.0, 0)
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(innerWidth, innerHeight)
+    renderer.setPixelRatio(1)
+    document.body.appendChild(renderer.domElement)
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.1))
+    const key = new THREE.DirectionalLight(0xffffff, 2.0)
+    key.position.set(3, 6, 5)
+    scene.add(key)
+    const rim = new THREE.DirectionalLight(0x88ccff, 0.8)
+    rim.position.set(-4, 3, -4)
+    scene.add(rim)
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(60, 60),
+      new THREE.MeshStandardMaterial({ color: '#0c3b33', roughness: 0.95 })
+    )
+    ground.rotation.x = -Math.PI / 2
+    scene.add(ground)
+
+    const loader = new GLTFLoader()
+    const report = []
+    const mixers = []
+    const roots = []
+    let clipName = 'Man_Idle'
+    const kitColors = { shirt: '#2fd6a8', pants: '#0d2b33', socks: '#2fd6a8', skin: '#c98a5b', hair: '#2a1c14' }
+
+    const applyKit = (root) => {
+      root.traverse((node) => {
+        if (!node.isMesh) return
+        const mats = Array.isArray(node.material) ? node.material : [node.material]
+        for (const mat of mats) {
+          if (!mat) continue
+          const name = (mat.name || '').toLowerCase()
+          if (name.includes('shirt')) mat.color.set(kitColors.shirt)
+          else if (name.includes('pants')) mat.color.set(kitColors.pants)
+          else if (name.includes('sock')) mat.color.set(kitColors.socks)
+          else if (name.includes('skin')) mat.color.set(kitColors.skin)
+          else if (name.includes('hair')) mat.color.set(kitColors.hair)
+        }
+      })
+    }
+
+    const loadNext = async () => {
+      if (report.length >= FILES.length) {
+        info.textContent = JSON.stringify(report, null, 1)
+        window.__report = report
+        window.__ready = true
+        return
+      }
+      const name = FILES[report.length]
+      const gltf = await loader.loadAsync(`/models/players/${name}.glb`)
+      const root = gltf.scene
+      const bones = {}
+      root.traverse((node) => {
+        if (node.isBone) bones[node.name] = node
+      })
+      root.updateMatrixWorld(true)
+      const head = (bones.Head_end || bones.Head)?.getWorldPosition(new THREE.Vector3())
+      const foot = (bones.FootL || bones.FootR)?.getWorldPosition(new THREE.Vector3())
+      const height = head && foot ? head.y - foot.y : 0
+      const scale = height > 0 ? 1.82 / height : 1
+      root.scale.setScalar(scale)
+      root.position.set((report.length - 1.5) * 1.3, 0, 0)
+      root.updateMatrixWorld(true)
+      const hips = bones.Hips?.getWorldPosition(new THREE.Vector3())
+      const headAfter = (bones.Head_end || bones.Head)?.getWorldPosition(new THREE.Vector3())
+      scene.add(root)
+      roots.push(root)
+      applyKit(root)
+      const mixer = new THREE.AnimationMixer(root)
+      const actions = {}
+      for (const clip of gltf.animations) {
+        const key = clip.name.split('|').pop()
+        actions[key] = mixer.clipAction(clip)
+      }
+      mixers.push(mixer)
+      window.__actions = actions
+      report.push({
+        name,
+        boneHeight: +height.toFixed(3),
+        scale: +scale.toFixed(4),
+        hips: hips ? [+hips.x.toFixed(2), +hips.y.toFixed(2), +hips.z.toFixed(2)] : null,
+        head: headAfter ? [+headAfter.x.toFixed(2), +headAfter.y.toFixed(2), +headAfter.z.toFixed(2)] : null,
+        clips: Object.keys(actions)
+      })
+      loadNext()
+    }
+
+    window.__compareGeometry = async () => {
+      const { mergeGeometries } = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+      const loader = new GLTFLoader()
+      const gltf = await loader.loadAsync('/models/players/Male_Casual.glb')
+      const source = gltf.scene
+      const meshes = []
+      source.traverse((node) => { if (node.isSkinnedMesh) meshes.push(node) })
+      const first = meshes[0]
+      const src = first.geometry
+      const copy = (attribute) => {
+        if (!attribute) return null
+        if (!attribute.isInterleavedBufferAttribute) return attribute.clone()
+        const itemSize = attribute.itemSize
+        const Ctor = attribute.array.constructor
+        const array = new Ctor(attribute.count * itemSize)
+        const raw = attribute.data.array
+        const stride = attribute.data.stride
+        const offset = attribute.offset
+        for (let i = 0; i < attribute.count; i += 1) {
+          for (let c = 0; c < itemSize; c += 1) array[i * itemSize + c] = raw[i * stride + offset + c]
+        }
+        return new THREE.BufferAttribute(array, itemSize, attribute.normalized)
+      }
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', copy(src.attributes.position))
+      if (src.attributes.normal) g.setAttribute('normal', copy(src.attributes.normal))
+      g.setAttribute('skinIndex', copy(src.attributes.skinIndex))
+      g.setAttribute('skinWeight', copy(src.attributes.skinWeight))
+      const count = src.attributes.position.count
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3).fill(0.6), 3))
+      if (src.index) g.setIndex(copy(src.index))
+      const merged = mergeGeometries([g], false)
+      for (const [name, attribute] of Object.entries(merged.attributes)) {
+        const srcAttr = g.attributes[name]
+        if (srcAttr) attribute.normalized = srcAttr.normalized
+      }
+      const rawSample = (attr, n) => {
+        const out = []
+        if (!attr) return out
+        if (attr.isInterleavedBufferAttribute) {
+          const raw = attr.data.array
+          const stride = attr.data.stride
+          const offset = attr.offset
+          for (let i = 0; i < n; i += 1) {
+            const row = []
+            for (let c = 0; c < attr.itemSize; c += 1) row.push(raw[i * stride + offset + c])
+            out.push(row)
+          }
+          return out
+        }
+        for (let i = 0; i < n; i += 1) out.push(Array.from(attr.array.slice(i * attr.itemSize, (i + 1) * attr.itemSize)))
+        return out
+      }
+      const sample = (attr, n) => {
+        const out = []
+        for (let i = 0; i < n; i += 1) out.push(Array.from(attr.array.slice(i * attr.itemSize, (i + 1) * attr.itemSize)))
+        return out
+      }
+      return {
+        sourcePosition: sample(src.attributes.position, 5),
+        mergedPosition: sample(merged.attributes.position, 5),
+        sourceSkinIndex: rawSample(src.attributes.skinIndex, 5),
+        mergedSkinIndex: rawSample(merged.attributes.skinIndex, 5),
+        sourceSkinWeight: rawSample(src.attributes.skinWeight, 5),
+        mergedSkinWeight: rawSample(merged.attributes.skinWeight, 5),
+        sourceNormal: rawSample(src.attributes.normal, 3),
+        mergedNormal: rawSample(merged.attributes.normal, 3),
+        strides: { pos: src.attributes.position.data?.stride, nrm: src.attributes.normal?.data?.stride, si: src.attributes.skinIndex.data?.stride, sw: src.attributes.skinWeight.data?.stride },
+        offsets: { pos: src.attributes.position.offset, nrm: src.attributes.normal?.offset, si: src.attributes.skinIndex.offset, sw: src.attributes.skinWeight.offset },
+        sourceIndex: sample(src.index, 6),
+        mergedIndex: sample(merged.index, 6),
+        sourceInterleaved: src.attributes.position.isInterleavedBufferAttribute,
+        mergedInterleaved: merged.attributes.position.isInterleavedBufferAttribute
+      }
+    }
+
+    window.__bakeVariants = async () => {
+      const { mergeGeometries } = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+      const { clone: cloneSkeleton } = await import('three/examples/jsm/utils/SkeletonUtils.js')
+      const loader = new GLTFLoader()
+      const gltf = await loader.loadAsync('/models/players/Male_Casual.glb')
+      const copy = (attribute) => {
+        if (!attribute) return null
+        if (!attribute.isInterleavedBufferAttribute) return attribute.clone()
+        const itemSize = attribute.itemSize
+        const Ctor = attribute.array.constructor
+        const array = new Ctor(attribute.count * itemSize)
+        const raw = attribute.data.array
+        const stride = attribute.data.stride
+        const offset = attribute.offset
+        for (let i = 0; i < attribute.count; i += 1) {
+          for (let c = 0; c < itemSize; c += 1) array[i * itemSize + c] = raw[i * stride + offset + c]
+        }
+        return new THREE.BufferAttribute(array, itemSize, attribute.normalized)
+      }
+      const build = (mesh) => {
+        const src = mesh.geometry
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', copy(src.attributes.position))
+        if (src.attributes.normal) g.setAttribute('normal', copy(src.attributes.normal))
+        g.setAttribute('skinIndex', copy(src.attributes.skinIndex))
+        g.setAttribute('skinWeight', copy(src.attributes.skinWeight))
+        const count = src.attributes.position.count
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3).fill(0.6), 3))
+        if (src.index) g.setIndex(copy(src.index))
+        return g
+      }
+      const results = []
+      const holders = []
+      // variant A: single source mesh rebuilt
+      {
+        const instance = cloneSkeleton(gltf.scene)
+        const meshes = []
+        instance.traverse((n) => { if (n.isSkinnedMesh) meshes.push(n) })
+        const first = meshes[0]
+        const baked = new THREE.SkinnedMesh(build(first), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }))
+        baked.position.copy(first.position); baked.quaternion.copy(first.quaternion); baked.scale.copy(first.scale)
+        first.parent.add(baked)
+        baked.bind(first.skeleton, first.bindMatrix)
+        const holder = new THREE.Group()
+        holder.add(instance)
+        holder.scale.setScalar(0.0044)
+        holder.position.set(-1.1, 0, 0)
+        scene.add(holder)
+        holders.push(holder)
+        const mixer = new THREE.AnimationMixer(instance)
+        const idle = gltf.animations.find((c) => c.name.includes('Man_Idle'))
+        if (idle) mixer.clipAction(idle).play()
+        mixers.push(mixer)
+        results.push('A single-mesh rebuild')
+      }
+      // variant B: merged all meshes
+      {
+        const instance = cloneSkeleton(gltf.scene)
+        const meshes = []
+        instance.traverse((n) => { if (n.isSkinnedMesh) meshes.push(n) })
+        const first = meshes[0]
+        const geometries = meshes.map(build)
+        const merged = mergeGeometries(geometries, false)
+        for (const [name, attribute] of Object.entries(merged.attributes)) {
+          const srcAttr = geometries[0].attributes[name]
+          if (srcAttr) attribute.normalized = srcAttr.normalized
+        }
+        const baked = new THREE.SkinnedMesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }))
+        baked.position.copy(first.position); baked.quaternion.copy(first.quaternion); baked.scale.copy(first.scale)
+        for (const mesh of meshes) { if (mesh.parent) mesh.parent.remove(mesh) }
+        first.parent.add(baked)
+        baked.bind(first.skeleton, first.bindMatrix)
+        const holder = new THREE.Group()
+        holder.add(instance)
+        holder.scale.setScalar(0.0044)
+        holder.position.set(0, 0, 0)
+        scene.add(holder)
+        holders.push(holder)
+        const mixer = new THREE.AnimationMixer(instance)
+        const idle = gltf.animations.find((c) => c.name.includes('Man_Idle'))
+        if (idle) mixer.clipAction(idle).play()
+        mixers.push(mixer)
+        results.push('B merged rebuild')
+      }
+      // variant C: original untouched
+      {
+        const instance = cloneSkeleton(gltf.scene)
+        const holder = new THREE.Group()
+        holder.add(instance)
+        holder.scale.setScalar(0.0044)
+        holder.position.set(1.1, 0, 0)
+        scene.add(holder)
+        const mixer = new THREE.AnimationMixer(instance)
+        const idle = gltf.animations.find((c) => c.name.includes('Man_Idle'))
+        if (idle) mixer.clipAction(idle).play()
+        mixers.push(mixer)
+        results.push('C original')
+      }
+      roots.forEach((r) => { r.visible = false })
+      return results
+    }
+
+    window.__bakeSideBySide = async () => {
+      const { mergeGeometries } = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+      const { clone: cloneSkeleton } = await import('three/examples/jsm/utils/SkeletonUtils.js')
+      const loader = new GLTFLoader()
+      const gltf = await loader.loadAsync('/models/players/Male_Casual.glb')
+      const source = gltf.scene
+      source.updateMatrixWorld(true)
+      const instance = cloneSkeleton(source)
+      const meshes = []
+      instance.traverse((node) => { if (node.isSkinnedMesh) meshes.push(node) })
+      const geometries = []
+      for (const mesh of meshes) {
+        const src = mesh.geometry
+        const g = new THREE.BufferGeometry()
+        const copy = (attribute) => {
+          if (!attribute) return null
+          if (!attribute.isInterleavedBufferAttribute) return attribute.clone()
+          const itemSize = attribute.itemSize
+          const Ctor = attribute.array.constructor
+          const array = new Ctor(attribute.count * itemSize)
+          const raw = attribute.data.array
+          const stride = attribute.data.stride
+          const offset = attribute.offset
+          for (let i = 0; i < attribute.count; i += 1) {
+            for (let c = 0; c < itemSize; c += 1) array[i * itemSize + c] = raw[i * stride + offset + c]
+          }
+          return new THREE.BufferAttribute(array, itemSize, attribute.normalized)
+        }
+        g.setAttribute('position', copy(src.attributes.position))
+        if (src.attributes.normal) g.setAttribute('normal', copy(src.attributes.normal))
+        g.setAttribute('skinIndex', copy(src.attributes.skinIndex))
+        g.setAttribute('skinWeight', copy(src.attributes.skinWeight))
+        const count = src.attributes.position.count
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3).fill(0.6), 3))
+        if (src.index) g.setIndex(copy(src.index))
+        geometries.push(g)
+      }
+      const merged = mergeGeometries(geometries, false)
+      for (const [name, attribute] of Object.entries(merged.attributes)) {
+        const srcAttr = geometries[0].attributes[name]
+        if (srcAttr) attribute.normalized = srcAttr.normalized
+      }
+      const baked = new THREE.SkinnedMesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }))
+      const first = meshes[0]
+      baked.position.copy(first.position)
+      baked.quaternion.copy(first.quaternion)
+      baked.scale.copy(first.scale)
+      first.parent.add(baked)
+      baked.bind(first.skeleton, first.bindMatrix)
+      const holder = new THREE.Group()
+      holder.add(instance)
+      scene.add(holder)
+      holder.position.set(2.6, 0, 0)
+      holder.scale.setScalar(0.0044)
+      const mixer = new THREE.AnimationMixer(instance)
+      const idle = gltf.animations.find((c) => c.name.includes('Man_Idle'))
+      if (idle) mixer.clipAction(idle).play()
+      mixers.push(mixer)
+      // second copy of the original for comparison
+      const original = cloneSkeleton(source)
+      const holder2 = new THREE.Group()
+      holder2.add(original)
+      holder2.position.set(1.1, 0, 0)
+      scene.add(holder2)
+      const mixer2 = new THREE.AnimationMixer(original)
+      if (idle) mixer2.clipAction(idle).play()
+      mixers.push(mixer2)
+      return {
+        bakedBind: baked.bindMatrix.elements.map((v) => +v.toFixed(2)),
+        sourceBind: first.bindMatrix.elements.map((v) => +v.toFixed(2)),
+        bakedScale: baked.scale.toArray(),
+        sourceScale: first.scale.toArray(),
+        bakedParent: baked.parent?.name,
+        sourceParent: first.parent?.name,
+        boneCount: baked.skeleton?.bones.length,
+        sharedBones: meshes.every((m) => m.skeleton.bones[0] === meshes[0].skeleton.bones[0])
+      }
+    }
+
+    window.__bakeTest = async () => {
+      const { mergeGeometries } = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+      const { clone: cloneSkeleton } = await import('three/examples/jsm/utils/SkeletonUtils.js')
+      const loader = new GLTFLoader()
+      const gltf = await loader.loadAsync('/models/players/Male_Casual.glb')
+      const source = gltf.scene
+      const instance = cloneSkeleton(source)
+      const meshes = []
+      instance.traverse((node) => { if (node.isSkinnedMesh) meshes.push(node) })
+      const info = meshes.map((mesh) => ({
+        name: mesh.name,
+        attrs: Object.fromEntries(Object.entries(mesh.geometry.attributes).map(([k, a]) => [k, a.array.constructor.name + (a.normalized ? 'N' : '') + ':' + a.itemSize])),
+        count: mesh.geometry.attributes.position.count,
+        indexed: Boolean(mesh.geometry.index),
+        indexType: mesh.geometry.index ? mesh.geometry.index.array.constructor.name : null,
+        bbox: (() => { mesh.geometry.computeBoundingBox(); const b = mesh.geometry.boundingBox; return [b.min.toArray().map(v=>+v.toFixed(3)), b.max.toArray().map(v=>+v.toFixed(3))] })()
+      }))
+      const geometries = []
+      for (const mesh of meshes) {
+        const src = mesh.geometry
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', src.attributes.position.clone())
+        if (src.attributes.normal) g.setAttribute('normal', src.attributes.normal.clone())
+        g.setAttribute('skinIndex', src.attributes.skinIndex.clone())
+        g.setAttribute('skinWeight', src.attributes.skinWeight.clone())
+        const count = src.attributes.position.count
+        const color = new Float32Array(count * 3).fill(0.5)
+        g.setAttribute('color', new THREE.BufferAttribute(color, 3))
+        if (src.index) g.setIndex(src.index.clone())
+        geometries.push(g)
+      }
+      const merged = mergeGeometries(geometries, false)
+      const mergedInfo = merged ? {
+        attrs: Object.fromEntries(Object.entries(merged.attributes).map(([k, a]) => [k, a.array.constructor.name + (a.normalized ? 'N' : '') + ':' + a.itemSize])),
+        count: merged.attributes.position.count,
+        indexed: Boolean(merged.index),
+        bbox: (() => { merged.computeBoundingBox(); const b = merged.boundingBox; return [b.min.toArray().map(v=>+v.toFixed(3)), b.max.toArray().map(v=>+v.toFixed(3))] })()
+      } : null
+      return { meshes: info, merged: mergedInfo }
+    }
+
+    window.__paint = () => {
+      const palette = ['#ff2d55', '#33ff66', '#2d7dff', '#ffd400', '#ff00e6', '#00e5ff', '#ff7a00', '#b0ff00']
+      let n = 0
+      roots.forEach((root) => {
+        root.traverse((node) => {
+          if (!node.isMesh) return
+          const mats = Array.isArray(node.material) ? node.material : [node.material]
+          for (const mat of mats) {
+            if (!mat) continue
+            mat.color.set(palette[n % palette.length])
+            mat.emissive.set('#000000')
+            mat.needsUpdate = true
+            n += 1
+          }
+        })
+      })
+      return n
+    }
+
+    window.__debug = () => {
+      const out = []
+      roots.forEach((root, index) => {
+        root.traverse((node) => {
+          if (!node.isMesh) return
+          const mats = Array.isArray(node.material) ? node.material : [node.material]
+          out.push({
+            index,
+            mesh: node.name,
+            groups: node.geometry.groups.length,
+            matCount: mats.length,
+            indexCount: node.geometry.index ? node.geometry.index.count : null,
+            posCount: node.geometry.attributes.position ? node.geometry.attributes.position.count : null,
+            parent: node.parent ? node.parent.name : null,
+            skinned: Boolean(node.isSkinnedMesh),
+            mats: mats.map((m) => ({ name: m.name, type: m.type, color: m.color ? m.color.getHexString() : null, emissive: m.emissive ? m.emissive.getHexString() : null, map: Boolean(m.map) }))
+          })
+        })
+      })
+      return out
+    }
+
+    window.__play = (name) => {
+      clipName = name
+      mixers.forEach((mixer) => {
+        Object.values(mixer._actions || {}).forEach((action) => action.stop())
+      })
+      roots.forEach((root, index) => {
+        const mixer = mixers[index]
+        const actions = mixer._actions
+        const found = Object.values(actions).find((action) => action._clip.name.includes(clipName))
+        if (found) {
+          found.reset().play()
+          found.setEffectiveTimeScale(1)
+        }
+      })
+      return clipName
+    }
+
+    window.__kit = (colors) => {
+      Object.assign(kitColors, colors)
+      roots.forEach(applyKit)
+      return kitColors
+    }
+
+    const clock = new THREE.Clock()
+    const render = () => {
+      const dt = Math.min(clock.getDelta(), 0.05)
+      mixers.forEach((mixer) => mixer.update(dt))
+      renderer.render(scene, camera)
+      requestAnimationFrame(render)
+    }
+    render()
+    loadNext().then(() => window.__play('Man_Idle'))
+  </script>
+</body>
+</html>

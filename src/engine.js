@@ -9,7 +9,7 @@ import {
   createRoster,
   getTeam
 } from './data.js'
-import { createPlayerModel } from './world.js'
+import { createTeamPlayerModel } from './world.js'
 
 const BALL_RADIUS = 0.34
 const PLAYER_RADIUS = 0.55
@@ -104,6 +104,8 @@ export class MatchEngine {
     this._camForward = new THREE.Vector3()
     this._camRight = new THREE.Vector3()
     this._moveDir = new THREE.Vector3()
+    this._poseEuler = new THREE.Euler()
+    this._poseQuat = new THREE.Quaternion()
     this.hudAccumulator = 0
   }
 
@@ -113,6 +115,10 @@ export class MatchEngine {
 
   setSettings(settings) {
     this.settings = settings
+  }
+
+  setCharacterLibrary(library) {
+    this.characterLibrary = library
   }
 
   start(config) {
@@ -208,7 +214,7 @@ export class MatchEngine {
         stumbleTimer: 0,
         mesh: null
       }
-      player.mesh = createPlayerModel(team, profile, isGK)
+      player.mesh = createTeamPlayerModel(team, profile, isGK, this.characterLibrary, slotIndex)
       player.position.set(slot.x * 29, 0, (index === 0 ? -1 : 1) * (PITCH.halfLength - slot.depth * 105))
       player.mesh.position.copy(player.position)
       player.mesh.rotation.y = player.facing
@@ -1842,8 +1848,12 @@ export class MatchEngine {
   animatePlayers(dt) {
     for (const player of this.players) {
       if (!player.active) continue
-      const speed = Math.hypot(player.velocity.x, player.velocity.z)
       const data = player.mesh.userData
+      if (data.glb) {
+        this.animateGlbPlayer(player, data, dt)
+        continue
+      }
+      const speed = Math.hypot(player.velocity.x, player.velocity.z)
       const speedNorm = clamp(speed / 7.2, 0, 1)
       const moving = speed > 0.4 && player.stumbleTimer <= 0
       const owner = this.ball.owner === player
@@ -1957,20 +1967,123 @@ export class MatchEngine {
         data.dive *= 0.82
       }
 
-      const inFlow = this.phase === 'playing' || this.phase === 'kickoff' || this.phase === 'restart'
-      const active = this.humans[player.team] && this.teams[player.team].controlledId === player.id && inFlow
-      data.ring.visible = active
-      data.ringBack.visible = active
-      data.arrow.visible = active
-      if (active) {
-        data.ring.rotation.z += dt * 1.2
-        const pulse = 1 + Math.sin(this.elapsed * 5 + player.slotIndex) * 0.05
-        data.ring.scale.setScalar(pulse)
-        data.ringBack.scale.setScalar(pulse)
-        data.arrow.position.y = 2.62 + Math.sin(this.elapsed * 4) * 0.06
-        data.arrow.rotation.y += dt * 1.4
-      }
-      data.shadow.visible = true
+      this.updatePlayerMarkers(player, data, dt)
     }
+  }
+
+  updatePlayerMarkers(player, data, dt) {
+    const inFlow = this.phase === 'playing' || this.phase === 'kickoff' || this.phase === 'restart'
+    const active = this.humans[player.team] && this.teams[player.team].controlledId === player.id && inFlow
+    data.ring.visible = active
+    data.ringBack.visible = active
+    data.arrow.visible = active
+    if (active) {
+      data.ring.rotation.z += dt * 1.2
+      const pulse = 1 + Math.sin(this.elapsed * 5 + player.slotIndex) * 0.05
+      data.ring.scale.setScalar(pulse)
+      data.ringBack.scale.setScalar(pulse)
+      data.arrow.position.y = 2.62 + Math.sin(this.elapsed * 4) * 0.06
+      data.arrow.rotation.y += dt * 1.4
+    }
+    data.shadow.visible = true
+  }
+
+  poseBone(bone, x, y, z) {
+    if (!bone) return
+    this._poseEuler.set(x, y, z)
+    this._poseQuat.setFromEuler(this._poseEuler)
+    bone.quaternion.multiply(this._poseQuat)
+  }
+
+  animateGlbPlayer(player, data, dt) {
+    const glb = data.glb
+    const bones = glb.bones
+    const actions = glb.actions
+    const speed = Math.hypot(player.velocity.x, player.velocity.z)
+    const owner = this.ball.owner === player
+    const stumbling = player.stumbleTimer > 0
+
+    let state = 'Man_Idle'
+    if (player.isGK && speed < 0.5 && player.diveTimer <= 0) state = 'Man_Standing'
+    else if (speed > 3.5) state = 'Man_Run'
+    else if (speed > 0.5) state = 'Man_Walk'
+    if (stumbling && actions.Man_Death) state = 'Man_Death'
+
+    if (glb.state !== state) {
+      const next = actions[state] || actions.Man_Idle
+      if (next) {
+        next.enabled = true
+        next.reset()
+        next.setEffectiveWeight(1)
+        next.play()
+        if (glb.current && glb.current !== next) glb.current.crossFadeTo(next, 0.18, false)
+        glb.current = next
+      }
+      glb.state = state
+    }
+    if (glb.current) {
+      if (state === 'Man_Walk') glb.current.timeScale = clamp(speed / 3.1, 0.55, 1.5)
+      else if (state === 'Man_Run') glb.current.timeScale = clamp(speed / 6.6, 0.8, 1.7)
+      else glb.current.timeScale = 1
+    }
+    glb.mixer.update(dt)
+
+    const body = glb.body
+    body.position.set(0, 0, 0)
+    body.rotation.set(0, 0, 0)
+
+    const lean = owner ? 0.05 : 0
+    this.poseBone(bones.get('Torso'), lean, 0, 0)
+
+    if (player.kickTimer > 0) {
+      const progress = clamp(1 - player.kickTimer / 0.3, 0, 1)
+      const kick = Math.sin(progress * Math.PI)
+      const side = player.kickSide < 0 ? 'L' : 'R'
+      this.poseBone(bones.get(`UpperLeg${side}`), -1.15 * kick, 0, 0)
+      this.poseBone(bones.get(`LowerLeg${side}`), 0.4 * kick, 0, 0)
+      this.poseBone(bones.get('UpperArmL'), -0.45 * kick, 0, 0)
+      this.poseBone(bones.get('UpperArmR'), 0.45 * kick, 0, 0)
+      this.poseBone(bones.get('Torso'), 0.12 * kick, 0, 0)
+    }
+
+    if (player.tackleTimer > 0) {
+      const slide = Math.sin(Math.min(1, (1 - player.tackleTimer / 0.32) * 1.6) * Math.PI * 0.5)
+      this.poseBone(bones.get('Hips'), -0.9 * slide, 0, 0)
+      this.poseBone(bones.get('UpperLegL'), -0.55 * slide, 0, 0)
+      this.poseBone(bones.get('LowerLegL'), 0.3 * slide, 0, 0)
+      this.poseBone(bones.get('UpperArmL'), 0.5 * slide, 0, -0.3 * slide)
+      this.poseBone(bones.get('UpperArmR'), -0.45 * slide, 0, 0.3 * slide)
+      body.position.y = -0.3 * slide
+    }
+
+    if (stumbling) {
+      const duration = player.stumbleDuration || 0.65
+      const progress = clamp(1 - player.stumbleTimer / duration, 0, 1)
+      const rise = clamp(progress / 0.26, 0, 1)
+      const recovery = clamp((progress - 0.62) / 0.38, 0, 1)
+      const fall = rise * (1 - recovery)
+      this.poseBone(bones.get('Hips'), 0.95 * fall, 0, 0.14 * fall)
+      this.poseBone(bones.get('UpperLegL'), -0.3 * fall, 0, 0)
+      this.poseBone(bones.get('UpperLegR'), 0.2 * fall, 0, 0)
+      this.poseBone(bones.get('UpperArmL'), -0.7 * fall, 0, -0.4 * fall)
+      this.poseBone(bones.get('UpperArmR'), -0.5 * fall, 0, 0.4 * fall)
+      body.position.y = -0.22 * fall
+    }
+
+    if (player.diveTimer > 0 && player.isGK) {
+      const dive = Math.sin(clamp(player.diveTimer / 0.65, 0, 1) * Math.PI)
+      const direction = data.dive >= 0 ? 1 : -1
+      this.poseBone(bones.get('Hips'), 0, 0, direction * 1.1 * dive)
+      this.poseBone(bones.get('UpperArmL'), 0, 0, -0.75 * dive)
+      this.poseBone(bones.get('UpperArmR'), 0, 0, 0.75 * dive)
+      this.poseBone(bones.get('UpperLegL'), -0.25 * dive, 0, 0)
+      body.position.y = 0.18 * dive
+    } else if (player.isGK) {
+      data.dive *= 0.82
+    }
+
+    if (glb.number) glb.number.visible = player.diveTimer <= 0 && player.tackleTimer <= 0
+
+    this.updatePlayerMarkers(player, data, dt)
   }
 }

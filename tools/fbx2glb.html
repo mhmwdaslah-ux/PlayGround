@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>FBX to GLB conversion</title>
+</head>
+<body>
+  <pre id="log">idle</pre>
+  <script type="module">
+    import * as THREE from 'three'
+    import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+    import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+    import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+
+    const log = document.getElementById('log')
+    const lines = []
+    const write = (line) => {
+      lines.push(line)
+      log.textContent = lines.join('\n')
+    }
+
+    const KEEP = ['Man_Idle', 'Man_Walk', 'Man_Run', 'Man_Standing', 'Man_Jump', 'Man_Punch', 'Man_Death', 'Man_Clapping']
+
+    const sliceVertices = (geometry, start, count) => {
+      const out = new THREE.BufferGeometry()
+      for (const name of Object.keys(geometry.attributes)) {
+        const source = geometry.attributes[name]
+        const itemSize = source.itemSize
+        const array = source.array.constructor === Float32Array
+          ? new Float32Array(count * itemSize)
+          : new Uint16Array(count * itemSize)
+        for (let v = 0; v < count; v += 1) {
+          for (let c = 0; c < itemSize; c += 1) {
+            array[v * itemSize + c] = source.array[(start + v) * itemSize + c]
+          }
+        }
+        out.setAttribute(name, new THREE.BufferAttribute(array, itemSize))
+      }
+      return out
+    }
+
+    window.__convert = async (name) => {
+      try {
+        const loader = new FBXLoader()
+        const group = await loader.loadAsync(`/tmp-assets/${name}.fbx`)
+
+        const report = []
+        const sources = []
+        group.traverse((node) => {
+          if (node.isSkinnedMesh) sources.push(node)
+        })
+
+        for (const source of sources) {
+          const materials = Array.isArray(source.material) ? source.material : [source.material]
+          const buckets = new Map()
+          for (const group of source.geometry.groups) {
+            const mat = materials[group.materialIndex]
+            if (!mat) continue
+            const geometry = sliceVertices(source.geometry, group.start, group.count)
+            if (!buckets.has(mat.name)) buckets.set(mat.name, { material: mat, geometries: [] })
+            buckets.get(mat.name).geometries.push(geometry)
+          }
+
+          const skeleton = source.skeleton
+          const position = source.position.clone()
+          const quaternion = source.quaternion.clone()
+          const scale = source.scale.clone()
+          const bindMatrix = source.bindMatrix.clone()
+          const parent = source.parent
+          parent.remove(source)
+
+          for (const [, entry] of buckets) {
+            const geometry = mergeGeometries(entry.geometries, false)
+            if (!geometry) continue
+            geometry.computeBoundingBox()
+            const size = new THREE.Vector3()
+            geometry.boundingBox.getSize(size)
+            const mesh = new THREE.SkinnedMesh(geometry, entry.material)
+            mesh.name = `${source.name}_${entry.material.name}`
+            mesh.position.copy(position)
+            mesh.quaternion.copy(quaternion)
+            mesh.scale.copy(scale)
+            parent.add(mesh)
+            mesh.bind(skeleton, bindMatrix)
+            report.push({
+              material: entry.material.name,
+              vertices: geometry.attributes.position.count,
+              triangles: geometry.attributes.position.count / 3,
+              size: { x: +size.x.toFixed(2), y: +size.y.toFixed(2), z: +size.z.toFixed(2) }
+            })
+          }
+        }
+
+        const clips = group.animations.filter((clip) => KEEP.some((key) => clip.name.includes(key)))
+        const exporter = new GLTFExporter()
+        const buffer = await exporter.parseAsync(group, {
+          binary: true,
+          animations: clips,
+          onlyVisible: false,
+          includeCustomExtensions: true
+        })
+
+        await fetch('http://127.0.0.1:8791/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Name': name },
+          body: buffer
+        })
+
+        const result = { name, report, clips: clips.map((c) => c.name), bytes: buffer.byteLength }
+        write(`${name}: ${result.bytes} bytes`)
+        return result
+      } catch (error) {
+        write(`${name}: ERROR ${error && error.stack ? error.stack : error}`)
+        return { name, error: String(error && error.stack ? error.stack : error) }
+      }
+    }
+
+    window.__ready = true
+  </script>
+</body>
+</html>

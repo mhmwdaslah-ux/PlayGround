@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { PITCH } from './data.js'
+import { createCharacterModel, createPlayerMarkers, makeNumberTexture } from './characters.js'
 
 const FIELD_WIDTH = 72
 const FIELD_LENGTH = 109
@@ -463,25 +464,12 @@ function createBall(scene) {
   return { mesh, trail, shadow, material: ballMaterial }
 }
 
-function makeNumberTexture(number, color) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 96
-  canvas.height = 112
-  const ctx = canvas.getContext('2d')
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.font = '700 64px "Arial Narrow", Arial, sans-serif'
-  ctx.lineWidth = 9
-  ctx.strokeStyle = 'rgba(2, 12, 18, 0.9)'
-  ctx.strokeText(String(number), 48, 58)
-  ctx.fillStyle = color
-  ctx.fillText(String(number), 48, 58)
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 4
-  texture.minFilter = THREE.LinearFilter
-  return texture
+export function createTeamPlayerModel(team, profile, isGK, library, assetIndex) {
+  if (library?.ready) {
+    const model = createCharacterModel(library, { assetIndex, team, profile, isGK })
+    if (model) return model
+  }
+  return createPlayerModel(team, profile, isGK)
 }
 
 export function createPlayerModel(team, profile, isGK = false) {
@@ -503,15 +491,9 @@ export function createPlayerModel(team, profile, isGK = false) {
   const trimMaterial = material(trim, { roughness: 0.7 })
   const bootMaterial = material('#061018', { roughness: 0.42, metalness: 0.18 })
 
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.58, 20),
-    new THREE.MeshBasicMaterial({ color: '#00110b', transparent: true, opacity: 0.38, depthWrite: false })
-  )
-  shadow.rotation.x = -Math.PI / 2
-  shadow.scale.y = 0.58
-  shadow.position.y = 0.015
-  shadow.material.userData.ephemeral = true
-  group.add(shadow)
+  const { ring, ringBack, arrow, shadow } = createPlayerMarkers()
+  arrow.position.y = 2.64
+  group.add(ring, ringBack, arrow, shadow)
 
   const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.22, 0.25, 10), shortsMaterial)
   hips.position.y = 0.98
@@ -652,29 +634,6 @@ export function createPlayerModel(team, profile, isGK = false) {
   }
   const leftArm = buildArm(-1)
   const rightArm = buildArm(1)
-
-  const ringMaterial = new THREE.MeshBasicMaterial({ color: '#f7ff9d', transparent: true, opacity: 0.96, depthWrite: false })
-  ringMaterial.userData.ephemeral = true
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.055, 8, 32), ringMaterial)
-  ring.rotation.x = -Math.PI / 2
-  ring.position.y = 0.04
-  ring.visible = false
-  group.add(ring)
-  const ringBackMaterial = new THREE.MeshBasicMaterial({ color: '#02110d', transparent: true, opacity: 0.55, depthWrite: false })
-  ringBackMaterial.userData.ephemeral = true
-  const ringBack = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.095, 6, 32), ringBackMaterial)
-  ringBack.rotation.x = -Math.PI / 2
-  ringBack.position.y = 0.025
-  ringBack.visible = false
-  group.add(ringBack)
-
-  const arrowMaterial = new THREE.MeshBasicMaterial({ color: '#f7ff9d' })
-  arrowMaterial.userData.ephemeral = true
-  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.34, 4), arrowMaterial)
-  arrow.rotation.x = Math.PI
-  arrow.position.y = 2.64
-  arrow.visible = false
-  group.add(arrow)
 
   group.userData = {
     rig,

@@ -16,6 +16,7 @@ import {
 import { createTournament, getUserMatch, recordUserResult } from './tournament.js'
 import { UIController } from './ui.js'
 import { createWorld } from './world.js'
+import { loadCharacterLibrary } from './characters.js'
 
 const canvas = document.getElementById('scene')
 let renderer
@@ -51,6 +52,18 @@ let cameraSnap = true
 let shake = 0
 let ui = null
 let engine = null
+let characterLibrary = { ready: false, assets: [], error: null }
+const characterLibraryPromise = loadCharacterLibrary().then((library) => {
+  characterLibrary = library
+  engine?.setCharacterLibrary(library)
+  if (library.ready) document.body.dataset.characters = 'ready'
+  else document.body.dataset.characters = 'fallback'
+  return library
+}).catch((error) => {
+  characterLibrary = { ready: false, assets: [], error }
+  document.body.dataset.characters = 'fallback'
+  return characterLibrary
+})
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
@@ -86,12 +99,14 @@ function startTournamentMatch() {
   })
 }
 
-function startMatch(config) {
+async function startMatch(config) {
   clearTimeout(introTimer)
   audio.unlock()
+  await characterLibraryPromise
   audio.setVolumes(settings)
   currentConfig = config
   engine.setSettings(settings)
+  engine.setCharacterLibrary(characterLibrary)
   engine.start(config)
   cameraSnap = true
   shake = 0
